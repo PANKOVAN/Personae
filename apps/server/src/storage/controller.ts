@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Header, Param, Patch, Post } from "@nest
 import type { Book, IStorage, Shelf } from "@personae/shared";
 import { StorageService } from "./service";
 
-/// Контроллер для работы с хранилищем.
+/// Контроллер для работы с хранилищем.!!!
 @Controller("api")
 export class StorageController {
     constructor(private readonly storage: StorageService) {}
