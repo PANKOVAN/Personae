@@ -6,7 +6,6 @@
         "module": "ESNext",
         "skipLibCheck": true,
         "moduleResolution": "bundler",
-        "isolatedModules": true,
         "moduleDetection": "force",
         "noEmit": true,
         "jsx": "react-jsx",
@@ -15,13 +14,8 @@
         "noUnusedParameters": true,
         "noFallthroughCasesInSwitch": true,
         "paths": {
-            "@personae/shared": ["./packages/shared/src/index.ts"]
+            "@personae/shared": ["../../packages/shared/src/index.ts"]
         }
     },
-    "include": [
-        "apps/client/src/**/*",
-        "apps/client/vite.config.ts",
-        "packages/shared/src/**/*.ts"
-    ],
-    "exclude": ["node_modules", "**/dist"]
+    "include": ["src", "vite.config.ts"]
 }

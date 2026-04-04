@@ -1,4 +1,11 @@
 node_modules
 dist
-*.local
-.DS_Store
+apps/*/dist
+packages/shared/dist
+.env
+.env.*
+!.env.example
+*.env
+*.vscode
+data
+/storage

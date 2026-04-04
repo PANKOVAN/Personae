@@ -4,8 +4,18 @@
     "tabWidth": 4,
     "useTabs": false,
     "trailingComma": "all",
-    "printWidth": 100,
+    "printWidth": 160,
+    "singleAttributePerLine": false,
     "bracketSpacing": true,
     "arrowParens": "always",
-    "endOfLine": "auto"
+    "endOfLine": "auto",
+    "plugins": ["@prettier/plugin-xml"],
+    "xmlWhitespaceSensitivity": "ignore",
+    "xmlSelfClosingSpace": true,
+    "overrides": [
+        {
+            "files": "*.fb2",
+            "options": { "parser": "xml" }
+        }
+    ]
 }

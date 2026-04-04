@@ -1,31 +1,27 @@
 {
-  "name": "personae",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "typecheck": "tsc --noEmit",
-    "preview": "vite preview",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"*.{json,html}\" \".vscode/*.json\""
-  },
-  "dependencies": {
-    "@vscode/codicons": "^0.0.45",
-    "mobx": "^6.15.0",
-    "mobx-react-lite": "^4.1.1",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "rsuite": "^6.1.2",
-    "uuid": "^13.0.0"
-  },
-  "devDependencies": {
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^4.3.4",
-    "prettier": "^3.8.1",
-    "sharp": "^0.34.5",
-    "typescript": "~5.7.2",
-    "vite": "^6.0.6"
-  }
+    "name": "personae",
+    "private": true,
+    "version": "0.0.1",
+    "description": "Локально: npm run dev из корня (без -w). Перед dev освобождаются порты API 3000 и отладки 9230 — не запускайте два сервера одновременно.",
+    "workspaces": [
+        "apps/*",
+        "packages/*"
+    ],
+    "scripts": {
+        "build": "npm run build -w @personae/shared && npm run build -w @personae/server && npm run build -w @personae/client",
+        "start": "npm run dev",
+        "predev": "kill-port 3000 9230",
+        "dev": "concurrently -k -n \"server,client\" \"npm --prefix apps/server run start:debug\" \"npm --prefix apps/client run dev\"",
+        "dev:server": "npm run start:dev -w @personae/server",
+        "dev:server:debug": "npm run start:debug -w @personae/server",
+        "dev:client": "npm run dev -w @personae/client",
+        "typecheck": "npm run typecheck -w @personae/shared && npm run typecheck -w @personae/server && npm run typecheck -w @personae/client",
+        "format": "prettier --write \"apps/**/*.{ts,tsx,css}\" \"packages/**/*.ts\" \".cursor/**/*.mdc\" \"*.{json,mdc}\""
+    },
+    "devDependencies": {
+        "@prettier/plugin-xml": "^3.4.2",
+        "concurrently": "^9.1.2",
+        "kill-port": "^2.0.1",
+        "prettier": "^3.8.1"
+    }
 }
