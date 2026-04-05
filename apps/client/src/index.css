@@ -115,15 +115,6 @@ body {
     background-color: var(--rs-border-primary);
 }
 
-.personae-source-edit {
-    resize: vertical;
-    font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace;
-    border: 1px solid var(--rs-border-primary);
-    border-radius: var(--rs-border-radius, 6px);
-    background: var(--rs-input-bg, var(--rs-bg-card));
-    color: var(--rs-text-primary);
-}
-
 .personae-error-toast {
     cursor: pointer;
     outline: none;

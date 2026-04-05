@@ -37,14 +37,6 @@ export const AppToolbar = observer(function AppToolbar({ store }: Props) {
                 />
             </ToolbarTip>
             <div className="personae-toolbar-divider" role="separator" />
-            <ToolbarTip label={store.editMode ? "Выключить режим правки" : "Включить режим правки"}>
-                <IconButton
-                    appearance={store.editMode ? "primary" : "ghost"}
-                    size="sm"
-                    icon={<i className="codicon codicon-edit" aria-hidden />}
-                    onClick={() => store.toggleEditMode()}
-                />
-            </ToolbarTip>
             <ToolbarTip label="Импорт книги">
                 <IconButton
                     appearance="ghost"

@@ -19,8 +19,6 @@ export class AppStore {
     showContents = true;
     /** Колонка результата анализа. */
     showResult = true;
-    /** Режим правки исходного текста. */
-    editMode = false;
     settingsOpen = false;
 
     constructor() {
@@ -35,20 +33,12 @@ export class AppStore {
         this.showResult = !this.showResult;
     }
 
-    toggleEditMode(): void {
-        this.editMode = !this.editMode;
-    }
-
     openSettings(): void {
         this.settingsOpen = true;
     }
 
     closeSettings(): void {
         this.settingsOpen = false;
-    }
-
-    setSourceText(text: string): void {
-        this.sourceText = text;
     }
 
     //#region IStorage
