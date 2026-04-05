@@ -4,5 +4,6 @@ import { StorageModule } from "./storage/module";
 
 @Module({
     imports: [StorageModule],
+    controllers: [StorageController],
 })
 export class AppModule {}

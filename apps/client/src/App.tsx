@@ -12,9 +12,7 @@ import { Col, Container, Content, Grid, Header, Heading, Message, Row, toaster }
 
 export const App = observer(function App() {
     useEffect(() => {
-        void appStore.getHealth();
-        void appStore.getShelves();
-        void appStore.getBooks();
+        void appStore.init();
     }, []);
 
     useEffect(() => {

@@ -2,11 +2,21 @@ import { Book, Shelf } from "@personae/shared";
 import { makeAutoObservable, runInAction } from "mobx";
 import { settings } from "../settings";
 
+function parseBookRow(b: { id?: string; name?: string; author?: string; description?: string; shelfId?: string }): Book {
+    return new Book(
+        String(b.id ?? ""),
+        String(b.name ?? ""),
+        String(b.author ?? ""),
+        String(b.description ?? ""),
+        String(b.shelfId ?? ""),
+    );
+}
+
 export class AppStore {
     health: boolean = false;
     shelves: Shelf[] = [];
     books: Book[] = [];
-    /** Книги по id полки (сегмент в URL /api/shelves/:id/...). */
+    /** Книги по id полки. */
     booksByShelfPath: Record<string, Book[]> = {};
     selectedShelfPath: string | null = null;
     selectedBookPath: string | null = null;
@@ -25,6 +35,11 @@ export class AppStore {
         makeAutoObservable(this);
     }
 
+    private api(path: string): string {
+        const p = path.replace(/^\//, "");
+        return `${settings.serverURL}/api/${p}`;
+    }
+
     toggleContents(): void {
         this.showContents = !this.showContents;
     }
@@ -41,11 +56,19 @@ export class AppStore {
         this.settingsOpen = false;
     }
 
-    //#region IStorage
+    /** Первичная загрузка и после смены настроек. */
+    async init(): Promise<void> {
+        await this.getHealth();
+        await this.getShelves();
+        await this.getBooks();
+    }
+
+    //#region IStorage HTTP (StorageController)
     async getHealth(): Promise<void> {
         try {
-            const r = await fetch(`${settings.serverURL}/api/health`);
-            const v: boolean = Boolean((await r.json()).ok);
+            const r = await fetch(this.api("health"));
+            const j = await r.json();
+            const v = j === true || (typeof j === "object" && j !== null && Boolean((j as { ok?: unknown }).ok));
             runInAction(() => {
                 this.health = v;
             });
@@ -57,42 +80,65 @@ export class AppStore {
     }
 
     async getShelves(): Promise<void> {
-        const r = await fetch(`${settings.serverURL}/api/shelves`);
+        const r = await fetch(this.api("storage/getShelves"));
         const raw = await r.json();
-        const shelves: Shelf[] = Array.isArray(raw) ? raw.map((s: { id?: string; name?: string }) => new Shelf(String(s.id ?? ""), String(s.name ?? ""))) : [];
+        const shelves: Shelf[] = Array.isArray(raw)
+            ? raw.map((s: { id?: string; name?: string }) => new Shelf(String(s.id ?? ""), String(s.name ?? "")))
+            : [];
         runInAction(() => {
             this.shelves = shelves;
         });
     }
+
     async getBooks(): Promise<void> {
-        const r = await fetch(`${settings.serverURL}/api/books`);
+        const r = await fetch(this.api("storage/getBooks"));
         const raw = await r.json();
-        const books: Book[] = Array.isArray(raw)
-            ? raw.map(
-                  (b: { id?: string; name?: string; author?: string; description?: string; shelfId?: string }) =>
-                      new Book(String(b.id ?? ""), String(b.name ?? ""), String(b.author ?? ""), String(b.description ?? ""), String(b.shelfId ?? "")),
-              )
-            : [];
+        const books: Book[] = Array.isArray(raw) ? raw.map((b) => parseBookRow(b)) : [];
         runInAction(() => {
             this.books = books;
+            const next: Record<string, Book[]> = {};
+            for (const s of this.shelves) {
+                next[s.id] = [];
+            }
+            for (const b of books) {
+                if (!next[b.shelfId]) {
+                    next[b.shelfId] = [];
+                }
+                next[b.shelfId].push(b);
+            }
+            this.booksByShelfPath = next;
         });
     }
     //#endregion
 
     async testResponse(r: Response) {
         if (!r.ok) {
-            throw new Error((await r.json()).message);
+            let msg = `${r.status} ${r.statusText}`;
+            try {
+                const j = await r.json();
+                if (typeof j === "object" && j !== null && "message" in j) {
+                    msg = String((j as { message: unknown }).message);
+                }
+            } catch {
+                /* ignore */
+            }
+            throw new Error(msg);
         }
     }
+
     async createShelf() {
         try {
-            const r = await fetch("/api/shelves", {
+            const r = await fetch(this.api("storage/addShelf"), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({}),
             });
             await this.testResponse(r);
             await this.getShelves();
+            await this.getBooks();
+            runInAction(() => {
+                this.error = null;
+            });
         } catch (e) {
             runInAction(() => {
                 this.error = e instanceof Error ? e.message : String(e);
@@ -102,15 +148,15 @@ export class AppStore {
 
     async createBook(shelfPath: string) {
         try {
-            const r = await fetch(`/api/shelves/${encodeURIComponent(shelfPath)}/books`, {
+            const r = await fetch(this.api(`storage/addBook/${encodeURIComponent(shelfPath)}`), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({}),
             });
             await this.testResponse(r);
             const c = await r.json();
-            const created = new Book(String(c.id ?? ""), String(c.name ?? ""), String(c.author ?? ""), String(c.description ?? ""), String(c.shelfId ?? ""));
-            await this.reloadBooksForShelf(shelfPath);
+            const created = parseBookRow(c);
+            await this.getBooks();
             await this.selectBook(created.shelfId, created.id);
         } catch (e) {
             runInAction(() => {
@@ -119,36 +165,17 @@ export class AppStore {
         }
     }
 
-    private async reloadBooksForShelf(shelfPath: string) {
-        try {
-            const r = await fetch(`/api/shelves/${encodeURIComponent(shelfPath)}/books`);
-            await this.testResponse(r);
-            const booksRaw = await r.json();
-            const books: Book[] = Array.isArray(booksRaw)
-                ? booksRaw.map(
-                      (b: { id?: string; name?: string; author?: string; description?: string; shelfId?: string }) =>
-                          new Book(String(b.id ?? ""), String(b.name ?? ""), String(b.author ?? ""), String(b.description ?? ""), String(b.shelfId ?? "")),
-                  )
-                : [];
-            runInAction(() => {
-                this.booksByShelfPath = { ...this.booksByShelfPath, [shelfPath]: books };
-            });
-        } catch {
-            /* ignore */
-        }
-    }
-
     async selectBook(shelfPath: string, bookPath: string) {
         this.selectedShelfPath = shelfPath;
         this.selectedBookPath = bookPath;
         this.sourceText = null;
         this.resultText = null;
-        await Promise.all([this.loadSource(shelfPath, bookPath), this.loadResult(shelfPath, bookPath)]);
+        await Promise.all([this.loadSource(bookPath), this.loadResult(bookPath)]);
     }
 
-    private async loadSource(shelfPath: string, bookPath: string) {
+    private async loadSource(bookId: string) {
         try {
-            const r = await fetch(`/api/shelves/${encodeURIComponent(shelfPath)}/books/${encodeURIComponent(bookPath)}/source`);
+            const r = await fetch(this.api(`storage/getSource/${encodeURIComponent(bookId)}`));
             if (!r.ok) {
                 runInAction(() => {
                     this.sourceText = `Ошибка загрузки source: ${r.status}`;
@@ -166,9 +193,9 @@ export class AppStore {
         }
     }
 
-    private async loadResult(shelfPath: string, bookPath: string) {
+    private async loadResult(bookId: string) {
         try {
-            const r = await fetch(`/api/shelves/${encodeURIComponent(shelfPath)}/books/${encodeURIComponent(bookPath)}/result`);
+            const r = await fetch(this.api(`storage/getResult/${encodeURIComponent(bookId)}`));
             if (!r.ok) {
                 runInAction(() => {
                     this.resultText = `result.json недоступен (${r.status})`;

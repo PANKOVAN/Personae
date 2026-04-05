@@ -37,6 +37,14 @@ export const AppToolbar = observer(function AppToolbar({ store }: Props) {
                 />
             </ToolbarTip>
             <div className="personae-toolbar-divider" role="separator" />
+            <ToolbarTip label="Новая полка">
+                <IconButton
+                    appearance="ghost"
+                    size="sm"
+                    icon={<i className="codicon codicon-new-folder" aria-hidden />}
+                    onClick={() => void store.createShelf()}
+                />
+            </ToolbarTip>
             <ToolbarTip label="Импорт книги">
                 <IconButton
                     appearance="ghost"

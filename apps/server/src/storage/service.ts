@@ -56,7 +56,7 @@ export class StorageService implements IStorage {
     }
 
     async getShelves(): Promise<Shelf[]> {
-        if (!this.isOpen) throw new Error("Storage is not open");
+        await this.open();
         return Promise.resolve(this.shelves);
     }
 
@@ -64,9 +64,10 @@ export class StorageService implements IStorage {
      * Создаёт каталог полки. `requestedSegment` — последний сегмент path от корня хранилища; иначе UUID v7.
      */
     async addShelf(): Promise<Shelf> {
-        if (!this.isOpen) throw new Error("Storage is not open");
+        await this.open();
         const shelf = new Shelf(crypto.randomUUID(), "Новая полка");
         this.shelves.push(shelf);
+        await this.save();
         return Promise.resolve(shelf);
     }
     async updShelf(shelfId: string, name: string): Promise<Shelf> {
@@ -94,7 +95,7 @@ export class StorageService implements IStorage {
         return Promise.resolve();
     }
     async getBooks(shelfId: string | undefined): Promise<Book[]> {
-        if (!this.isOpen) throw new Error("Storage is not open");
+        await this.open();
         return Promise.resolve(this.books.filter((b) => (shelfId ? b.shelfId === shelfId : true)));
     }
 
