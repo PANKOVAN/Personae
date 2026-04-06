@@ -182,8 +182,42 @@ body {
     text-overflow: ellipsis;
 }
 
-.personae-shelf-row-add {
+.personae-shelf-row-actions {
+    display: flex;
     flex-shrink: 0;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+    position: relative;
+    z-index: 1;
+}
+
+.personae-tree-row-action {
+    flex-shrink: 0;
+}
+
+.personae-book-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    width: 100%;
+}
+
+.personae-book-row-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.personae-book-row-actions {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    margin-left: auto;
+    position: relative;
+    z-index: 1;
 }
 
 .personae-shelf-stack {
@@ -202,10 +236,29 @@ body {
 .personae-shelf-tree.rs-tree {
     background: transparent;
     min-height: 0;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .personae-shelf-tree .rs-tree-view {
     max-height: none;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.personae-shelf-tree .rs-tree-node {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.personae-shelf-tree .rs-tree-node-label {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.personae-shelf-tree .rs-tree-node-label > .personae-shelf-row,
+.personae-shelf-tree .rs-tree-node-label > .personae-book-row {
+    min-width: 0;
 }
 
 .personae-pre-block {

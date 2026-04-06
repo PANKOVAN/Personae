@@ -17,3 +17,12 @@ export function parseShelfBookTreeValue(key: string): { shelfPath: string; bookP
 export function shelfFolderTreeValue(shelfPath: string): string {
     return `${SHELF_FOLDER_PREFIX}${shelfPath}`;
 }
+
+/** Значение узла-полки (`folder:…`) или `null`, если это не полка. */
+export function parseShelfFolderTreeValue(key: string): string | null {
+    if (!key.startsWith(SHELF_FOLDER_PREFIX)) {
+        return null;
+    }
+    const id = key.slice(SHELF_FOLDER_PREFIX.length);
+    return id.length > 0 ? id : null;
+}

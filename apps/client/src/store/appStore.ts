@@ -165,6 +165,63 @@ export class AppStore {
         }
     }
 
+    async deleteShelf(shelfId: string) {
+        try {
+            const clearsSelection = this.selectedShelfPath === shelfId;
+            const r = await fetch(this.api(`storage/delShelf/${encodeURIComponent(shelfId)}`), {
+                method: "DELETE",
+            });
+            await this.testResponse(r);
+            await this.getShelves();
+            await this.getBooks();
+            runInAction(() => {
+                if (clearsSelection) {
+                    this.selectedShelfPath = null;
+                    this.selectedBookPath = null;
+                    this.sourceText = null;
+                    this.resultText = null;
+                }
+                this.error = null;
+            });
+        } catch (e) {
+            runInAction(() => {
+                this.error = e instanceof Error ? e.message : String(e);
+            });
+        }
+    }
+
+    async deleteBook(bookId: string) {
+        try {
+            const clearsSelection = this.selectedBookPath === bookId;
+            const r = await fetch(this.api(`storage/delBook/${encodeURIComponent(bookId)}`), {
+                method: "DELETE",
+            });
+            await this.testResponse(r);
+            await this.getBooks();
+            runInAction(() => {
+                if (clearsSelection) {
+                    this.selectedShelfPath = null;
+                    this.selectedBookPath = null;
+                    this.sourceText = null;
+                    this.resultText = null;
+                }
+                this.error = null;
+            });
+        } catch (e) {
+            runInAction(() => {
+                this.error = e instanceof Error ? e.message : String(e);
+            });
+        }
+    }
+
+    /** Выбрана только полка (без книги). */
+    selectShelf(shelfPath: string): void {
+        this.selectedShelfPath = shelfPath;
+        this.selectedBookPath = null;
+        this.sourceText = null;
+        this.resultText = null;
+    }
+
     async selectBook(shelfPath: string, bookPath: string) {
         this.selectedShelfPath = shelfPath;
         this.selectedBookPath = bookPath;
