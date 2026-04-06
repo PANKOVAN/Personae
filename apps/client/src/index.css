@@ -135,6 +135,16 @@ body {
     flex-direction: column;
 }
 
+/*
+ * Rsuite подключается после этого файла: .rs-col задаёт display: block и сбивает flex-колонку,
+ * из-за чего дочерние панели (источник, результат) не получают ограничение по высоте и не прокручиваются.
+ */
+.rs-col.personae-col-visualizer,
+.rs-col.personae-col-toolbar {
+    display: flex;
+    flex-direction: column;
+}
+
 .personae-panel-stretch {
     height: 100%;
     display: flex;
