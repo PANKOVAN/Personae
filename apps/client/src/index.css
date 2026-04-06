@@ -256,9 +256,20 @@ body {
     min-width: 0;
 }
 
-.personae-shelf-tree .rs-tree-node-label > .personae-shelf-row,
-.personae-shelf-tree .rs-tree-node-label > .personae-book-row {
+.personae-shelf-tree .rs-tree-node-label .personae-shelf-row,
+.personae-shelf-tree .rs-tree-node-label .personae-book-row {
     min-width: 0;
+}
+
+.personae-tree-edit-popover {
+    min-width: 260px;
+}
+
+.personae-tree-edit-popover-actions {
+    margin-top: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 .personae-pre-block {

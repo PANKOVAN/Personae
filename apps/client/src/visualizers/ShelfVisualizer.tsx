@@ -1,4 +1,5 @@
 import type { AppStore } from "../store/appStore";
+import type { Book, Shelf } from "@personae/shared";
 import {
     parseShelfBookTreeValue,
     parseShelfFolderTreeValue,
@@ -7,8 +8,8 @@ import {
 } from "./shelfBookTree";
 import { observer } from "mobx-react-lite";
 import type { ReactNode } from "react";
-import { useMemo } from "react";
-import { IconButton, Tree } from "rsuite";
+import { useEffect, useMemo, useState } from "react";
+import { Button, Form, IconButton, Input, Popover, Textarea, Tree, Whisper } from "rsuite";
 
 type Props = { store: AppStore };
 
@@ -30,89 +31,223 @@ function treeContainsValue(nodes: TreeNodeData[], value: string): boolean {
     return false;
 }
 
+function ShelfEditBody({ shelf, store, onDone }: { shelf: Shelf; store: AppStore; onDone: () => void }) {
+    const [name, setName] = useState(shelf.name);
+    useEffect(() => {
+        setName(shelf.name);
+    }, [shelf.id, shelf.name]);
+
+    return (
+        <div className="personae-tree-edit-popover">
+            <Form layout="vertical">
+                <Form.Group>
+                    <Form.ControlLabel>Название</Form.ControlLabel>
+                    <Input value={name} onChange={setName} />
+                </Form.Group>
+            </Form>
+            <div className="personae-tree-edit-popover-actions">
+                <Button
+                    appearance="primary"
+                    size="sm"
+                    onClick={() => {
+                        void store.updateShelf(shelf.id, name).then((ok) => {
+                            if (ok) {
+                                onDone();
+                            }
+                        });
+                    }}
+                >
+                    Сохранить
+                </Button>
+                <Button size="sm" onClick={onDone}>
+                    Отмена
+                </Button>
+            </div>
+        </div>
+    );
+}
+
+function BookEditBody({ book, store, onDone }: { book: Book; store: AppStore; onDone: () => void }) {
+    const [name, setName] = useState(book.name);
+    const [author, setAuthor] = useState(book.author);
+    const [description, setDescription] = useState(book.description);
+    useEffect(() => {
+        setName(book.name);
+        setAuthor(book.author);
+        setDescription(book.description);
+    }, [book.id, book.name, book.author, book.description]);
+
+    return (
+        <div className="personae-tree-edit-popover">
+            <Form layout="vertical">
+                <Form.Group>
+                    <Form.ControlLabel>Название</Form.ControlLabel>
+                    <Input value={name} onChange={setName} />
+                </Form.Group>
+                <Form.Group>
+                    <Form.ControlLabel>Автор</Form.ControlLabel>
+                    <Input value={author} onChange={setAuthor} />
+                </Form.Group>
+                <Form.Group>
+                    <Form.ControlLabel>Описание</Form.ControlLabel>
+                    <Textarea rows={3} value={description} onChange={setDescription} />
+                </Form.Group>
+            </Form>
+            <div className="personae-tree-edit-popover-actions">
+                <Button
+                    appearance="primary"
+                    size="sm"
+                    onClick={() => {
+                        void store.updateBook(book.id, name, author, description, book.shelfId).then((ok) => {
+                            if (ok) {
+                                onDone();
+                            }
+                        });
+                    }}
+                >
+                    Сохранить
+                </Button>
+                <Button size="sm" onClick={onDone}>
+                    Отмена
+                </Button>
+            </div>
+        </div>
+    );
+}
+
 export const ShelfVisualizer = observer(function ShelfVisualizer({ store }: Props) {
+    const [shelfEditId, setShelfEditId] = useState<string | null>(null);
+    const [bookEditKey, setBookEditKey] = useState<string | null>(null);
+
     const data: TreeNodeData[] = useMemo(() => {
         const shelves = store.shelves.map((shelf) => {
             const books = store.booksByShelfPath[shelf.id] ?? [];
             const shelfRowIsCurrent = store.selectedShelfPath === shelf.id && store.selectedBookPath === null;
             const children: TreeNodeData[] = books.map((b) => {
                 const bookIsCurrent = store.selectedShelfPath === shelf.id && store.selectedBookPath === b.id;
+                const bookKey = shelfBookTreeValue(shelf.id, b.id);
                 return {
-                    value: shelfBookTreeValue(shelf.id, b.id),
+                    value: bookKey,
                     label: (
-                        <div className="personae-book-row">
-                            <span className="personae-book-row-name">
-                                {b.name || b.id}
-                                {b.author ? <span className="personae-book-author">— {b.author}</span> : null}
-                            </span>
-                            {bookIsCurrent ? (
-                                <span className="personae-book-row-actions personae-tree-row-action">
-                                    <IconButton
-                                        appearance="subtle"
-                                        size="xs"
-                                        className="personae-book-row-del"
-                                        aria-label="Удалить книгу"
-                                        title="Удалить книгу"
-                                        type="button"
-                                        icon={<i className="codicon codicon-trash" aria-hidden />}
-                                        onMouseDown={(e) => e.stopPropagation()}
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            void store.deleteBook(b.id);
-                                        }}
-                                    />
+                        <Whisper
+                            trigger="none"
+                            open={bookEditKey === bookKey}
+                            onClose={() => setBookEditKey(null)}
+                            placement="autoVertical"
+                            enterable
+                            speaker={
+                                <Popover title="Редактировать книгу">
+                                    <BookEditBody book={b} store={store} onDone={() => setBookEditKey(null)} />
+                                </Popover>
+                            }
+                        >
+                            <div
+                                className="personae-book-row"
+                                onDoubleClick={(e) => {
+                                    if (e.target instanceof Element && e.target.closest(".personae-tree-row-action")) {
+                                        return;
+                                    }
+                                    e.stopPropagation();
+                                    setShelfEditId(null);
+                                    setBookEditKey(bookKey);
+                                }}
+                            >
+                                <span className="personae-book-row-name">
+                                    {b.name || b.id}
+                                    {b.author ? <span className="personae-book-author">— {b.author}</span> : null}
                                 </span>
-                            ) : null}
-                        </div>
+                                {bookIsCurrent ? (
+                                    <span className="personae-book-row-actions personae-tree-row-action">
+                                        <IconButton
+                                            appearance="subtle"
+                                            size="xs"
+                                            className="personae-book-row-del"
+                                            aria-label="Удалить книгу"
+                                            title="Удалить книгу"
+                                            type="button"
+                                            icon={<i className="codicon codicon-trash" aria-hidden />}
+                                            onMouseDown={(e) => e.stopPropagation()}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                void store.deleteBook(b.id);
+                                            }}
+                                        />
+                                    </span>
+                                ) : null}
+                            </div>
+                        </Whisper>
                     ),
                 };
             });
             return {
                 value: shelfFolderTreeValue(shelf.id),
                 label: (
-                    <div className="personae-shelf-row">
-                        <span className="personae-shelf-row-name" title={shelf.name || shelf.id}>
-                            {shelf.name || shelf.id}
-                        </span>
-                        {shelfRowIsCurrent ? (
-                            <span className="personae-shelf-row-actions">
-                                <IconButton
-                                    appearance="subtle"
-                                    size="xs"
-                                    className="personae-tree-row-action personae-shelf-row-add"
-                                    aria-label="Добавить книгу"
-                                    title="Добавить книгу"
-                                    type="button"
-                                    icon={<i className="codicon codicon-add" aria-hidden />}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        void store.createBook(shelf.id);
-                                    }}
-                                />
-                                <IconButton
-                                    appearance="subtle"
-                                    size="xs"
-                                    className="personae-tree-row-action personae-shelf-row-del"
-                                    aria-label="Удалить полку"
-                                    title="Удалить полку"
-                                    type="button"
-                                    icon={<i className="codicon codicon-trash" aria-hidden />}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        void store.deleteShelf(shelf.id);
-                                    }}
-                                />
+                    <Whisper
+                        trigger="none"
+                        open={shelfEditId === shelf.id}
+                        onClose={() => setShelfEditId(null)}
+                        placement="autoVertical"
+                        enterable
+                        speaker={
+                            <Popover title="Редактировать полку">
+                                <ShelfEditBody shelf={shelf} store={store} onDone={() => setShelfEditId(null)} />
+                            </Popover>
+                        }
+                    >
+                        <div
+                            className="personae-shelf-row"
+                            onDoubleClick={(e) => {
+                                if (e.target instanceof Element && e.target.closest(".personae-tree-row-action")) {
+                                    return;
+                                }
+                                e.stopPropagation();
+                                setBookEditKey(null);
+                                setShelfEditId(shelf.id);
+                            }}
+                        >
+                            <span className="personae-shelf-row-name" title={shelf.name || shelf.id}>
+                                {shelf.name || shelf.id}
                             </span>
-                        ) : null}
-                    </div>
+                            {shelfRowIsCurrent ? (
+                                <span className="personae-shelf-row-actions">
+                                    <IconButton
+                                        appearance="subtle"
+                                        size="xs"
+                                        className="personae-tree-row-action personae-shelf-row-add"
+                                        aria-label="Добавить книгу"
+                                        title="Добавить книгу"
+                                        type="button"
+                                        icon={<i className="codicon codicon-add" aria-hidden />}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            void store.createBook(shelf.id);
+                                        }}
+                                    />
+                                    <IconButton
+                                        appearance="subtle"
+                                        size="xs"
+                                        className="personae-tree-row-action personae-shelf-row-del"
+                                        aria-label="Удалить полку"
+                                        title="Удалить полку"
+                                        type="button"
+                                        icon={<i className="codicon codicon-trash" aria-hidden />}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            void store.deleteShelf(shelf.id);
+                                        }}
+                                    />
+                                </span>
+                            ) : null}
+                        </div>
+                    </Whisper>
                 ),
                 children,
             };
         });
         return shelves;
-    }, [store.shelves, store.booksByShelfPath, store.selectedShelfPath, store.selectedBookPath]);
+    }, [store.shelves, store.booksByShelfPath, store.selectedShelfPath, store.selectedBookPath, shelfEditId, bookEditKey]);
 
     const selectedKey =
         store.selectedShelfPath == null

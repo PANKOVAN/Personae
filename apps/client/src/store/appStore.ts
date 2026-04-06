@@ -214,6 +214,49 @@ export class AppStore {
         }
     }
 
+    async updateShelf(shelfId: string, name: string): Promise<boolean> {
+        try {
+            const r = await fetch(this.api(`storage/updShelf/${encodeURIComponent(shelfId)}`), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name }),
+            });
+            await this.testResponse(r);
+            await this.getShelves();
+            await this.getBooks();
+            runInAction(() => {
+                this.error = null;
+            });
+            return true;
+        } catch (e) {
+            runInAction(() => {
+                this.error = e instanceof Error ? e.message : String(e);
+            });
+            return false;
+        }
+    }
+
+    async updateBook(bookId: string, name: string, author: string, description: string, shelfId: string): Promise<boolean> {
+        try {
+            const r = await fetch(this.api(`storage/updBook/${encodeURIComponent(bookId)}`), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name, author, description, shelfId }),
+            });
+            await this.testResponse(r);
+            await this.getBooks();
+            runInAction(() => {
+                this.error = null;
+            });
+            return true;
+        } catch (e) {
+            runInAction(() => {
+                this.error = e instanceof Error ? e.message : String(e);
+            });
+            return false;
+        }
+    }
+
     /** Выбрана только полка (без книги). */
     selectShelf(shelfPath: string): void {
         this.selectedShelfPath = shelfPath;
