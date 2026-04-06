@@ -65,12 +65,12 @@ function ShelfEditBody({ shelf, store, onDone }: { shelf: Shelf; store: AppStore
 function BookEditBody({ book, store, onDone }: { book: Book; store: AppStore; onDone: () => void }) {
     const [name, setName] = useState(book.name);
     const [author, setAuthor] = useState(book.author);
-    const [description, setDescription] = useState(book.description);
+    const [annotation, setAnnotation] = useState(book.annotation);
     useEffect(() => {
         setName(book.name);
         setAuthor(book.author);
-        setDescription(book.description);
-    }, [book.id, book.name, book.author, book.description]);
+        setAnnotation(book.annotation);
+    }, [book.id, book.name, book.author, book.annotation]);
 
     return (
         <div className="personae-tree-edit-popover">
@@ -85,7 +85,7 @@ function BookEditBody({ book, store, onDone }: { book: Book; store: AppStore; on
                 </Form.Group>
                 <Form.Group>
                     <Form.ControlLabel>Описание</Form.ControlLabel>
-                    <Textarea rows={3} value={description} onChange={setDescription} />
+                    <Textarea rows={3} value={annotation} onChange={setAnnotation} />
                 </Form.Group>
             </Form>
             <div className="personae-tree-edit-popover-actions">
@@ -93,7 +93,7 @@ function BookEditBody({ book, store, onDone }: { book: Book; store: AppStore; on
                     appearance="primary"
                     size="sm"
                     onClick={() => {
-                        void store.updateBook(book.id, name, author, description, book.shelfId).then((ok) => {
+                        void store.updateBook(book.id, name, author, annotation, book.shelfId).then((ok) => {
                             if (ok) {
                                 onDone();
                             }

@@ -2,8 +2,9 @@ import { Book, Shelf } from "@personae/shared";
 import { makeAutoObservable, runInAction } from "mobx";
 import { settings } from "../settings";
 
-function parseBookRow(b: { id?: string; name?: string; author?: string; description?: string; shelfId?: string }): Book {
-    return new Book(String(b.id ?? ""), String(b.name ?? ""), String(b.author ?? ""), String(b.description ?? ""), String(b.shelfId ?? ""));
+function parseBookRow(b: { id?: string; name?: string; author?: string; annotation?: string; description?: string; shelfId?: string }): Book {
+    const ann = b.annotation ?? b.description ?? "";
+    return new Book(String(b.id ?? ""), String(b.name ?? ""), String(b.author ?? ""), String(ann), String(b.shelfId ?? ""));
 }
 
 export class AppStore {
@@ -32,49 +33,6 @@ export class AppStore {
     private api(path: string): string {
         const p = path.replace(/^\//, "");
         return `${settings.serverURL}/api/${p}`;
-    }
-
-    private decodeXmlText(value: string): string {
-        return value
-            .replace(/&lt;/g, "<")
-            .replace(/&gt;/g, ">")
-            .replace(/&quot;/g, '"')
-            .replace(/&apos;/g, "'")
-            .replace(/&amp;/g, "&")
-            .trim();
-    }
-
-    private escapeXmlText(value: string): string {
-        return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
-    }
-
-    private extractTagValue(source: string, tag: string): string {
-        const re = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i");
-        const m = source.match(re);
-        return m ? this.decodeXmlText(m[1]) : "";
-    }
-
-    private normalizeImportedSource(fileName: string, source: string): { sourceXml: string; name: string; author: string; description: string } {
-        const fileTitle = fileName.replace(/\.[^.]+$/, "").trim() || "Новая книга";
-        const isPersonaeXml = /<personae[\s>]/i.test(source);
-        if (isPersonaeXml) {
-            const name = this.extractTagValue(source, "name") || fileTitle;
-            const author = this.extractTagValue(source, "author");
-            const description = this.extractTagValue(source, "annotation");
-            return { sourceXml: source, name, author, description };
-        }
-        const escapedBody = this.escapeXmlText(source);
-        const sourceXml = `<?xml version="1.0" encoding="UTF-8"?>
-<personae>
-  <description>
-    <name>${this.escapeXmlText(fileTitle)}</name>
-    <author></author>
-    <annotation></annotation>
-  </description>
-  <body>${escapedBody}</body>
-</personae>
-`;
-        return { sourceXml, name: fileTitle, author: "", description: "" };
     }
 
     toggleContents(): void {
@@ -253,12 +211,12 @@ export class AppStore {
         }
     }
 
-    async updateBook(bookId: string, name: string, author: string, description: string, shelfId: string): Promise<boolean> {
+    async updateBook(bookId: string, name: string, author: string, annotation: string, shelfId: string): Promise<boolean> {
         try {
             const r = await fetch(this.api(`storage/updBook/${encodeURIComponent(bookId)}`), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, author, description, shelfId }),
+                body: JSON.stringify({ name, author, annotation, shelfId }),
             });
             await this.testResponse(r);
             await this.getBooks();
@@ -277,19 +235,45 @@ export class AppStore {
     async importBookFromFile(bookId: string, fileName: string, sourceText: string): Promise<boolean> {
         try {
             const fileExtension = fileName.split(".").pop();
-            const srcResp = await fetch(this.api(`storage/importSource/${encodeURIComponent(bookId)}`), {
-                method: "POST",
-                headers: { "Content-Type": `text/${fileExtension}; charset=utf-8` },
-                body: JSON.stringify({ fileExtension, source: sourceText }),
-            });
-            await this.testResponse(srcResp);
+            const book = this.books.find((b) => b.id === bookId);
+            if (!book) {
+                throw new Error("Книга не найдена");
+            }
+            if (fileExtension === "fb2") {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(sourceText, "application/xml");
+                const name = doc.querySelector("description>title-info>book-title")?.textContent || book.name;
+                const firstName = doc.querySelector("description>title-info>author>first-name")?.textContent || book.author;
+                const lastName = doc.querySelector("description>title-info>author>last-name")?.textContent || book.author;
+                const author = firstName || lastName ? firstName + " " + lastName : book.author;
+                const annotation = doc.querySelector("description>title-info>annotation")?.textContent || book.annotation;
+                const source = [...doc.querySelectorAll("body")]
+                    .map((b) => {
+                        return b.innerHTML
+                            .replaceAll("<title", "<h3")
+                            .replaceAll("</title>", "</h3>")
+                            .replaceAll("<subtitle", "<h4")
+                            .replaceAll("</subtitle>", "</h4>");
+                    })
+                    .join("\n");
+                await this.updateBook(bookId, name, author, annotation, book.shelfId);
 
-            await this.getBooks();
-            await this.selectBook(bookId);
-            runInAction(() => {
-                this.error = null;
-            });
-            return true;
+                const res = await fetch(this.api(`storage/setSource/${encodeURIComponent(bookId)}`), {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ source }),
+                });
+                await this.testResponse(res);
+
+                await this.getBooks();
+                await this.selectBook(bookId);
+                runInAction(() => {
+                    this.error = null;
+                });
+                return true;
+            } else {
+                throw new Error("Неподдерживаемый формат файла");
+            }
         } catch (e) {
             runInAction(() => {
                 this.error = e instanceof Error ? e.message : String(e);

@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
 import { BOOK_FILES, Shelf, Book, IStorage } from "@personae/shared";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -27,7 +27,10 @@ export class StorageService implements IStorage {
             try {
                 let data = JSON.parse(await fs.readFile(path.join(this.root, "data.json"), "utf8"));
                 this.shelves = data.shelves.map((s: any) => new Shelf(s.id, s.name));
-                this.books = data.books.map((b: any) => new Book(b.id, b.name, b.author, b.description, b.shelfId));
+                this.books = data.books.map(
+                    (b: { id: string; name: string; author: string; shelfId: string; annotation?: string; description?: string }) =>
+                        new Book(b.id, b.name, b.author, b.annotation ?? b.description ?? "", b.shelfId),
+                );
             } catch {
                 this.shelves = [];
                 this.books = [];
@@ -109,16 +112,16 @@ export class StorageService implements IStorage {
         await this.save();
         return Promise.resolve(book);
     }
-    async updBook(bookId: string, name: string, author: string, description: string, shelfId: string): Promise<Book> {
+    async updBook(bookId: string, name: string, author: string, annotation: string, shelfId: string): Promise<Book> {
         await this.open();
         let book = this.books.find((b) => b.id === bookId);
         if (!book) {
-            book = new Book(bookId, name, author, description, shelfId);
+            book = new Book(bookId, name, author, annotation, shelfId);
             this.books.push(book);
         } else {
             book.name = name;
             book.author = author;
-            book.description = description;
+            book.annotation = annotation;
         }
         await this.save();
         return Promise.resolve(book);
@@ -167,7 +170,7 @@ export class StorageService implements IStorage {
     async setSource(bookId: string, source: string): Promise<void> {
         await this.open();
         try {
-            await fs.mkdir(this.root, { recursive: true });
+            await fs.mkdir(path.join(this.root, bookId), { recursive: true });
             await fs.writeFile(path.join(this.root, bookId, BOOK_FILES.source), source, "utf8");
         } catch {
             throw new InternalServerErrorException("Cannot write source");
@@ -194,10 +197,6 @@ export class StorageService implements IStorage {
         } catch {
             throw new InternalServerErrorException("Cannot write result");
         }
-        return Promise.resolve();
-    }
-    async importSource(bookId: string, source: string, fileExtension: string): Promise<void> {
-        await this.open();
         return Promise.resolve();
     }
 }

@@ -51,10 +51,10 @@ export class StorageController {
         @Param("bookId") bookId: string,
         @Body("name") name: string,
         @Body("author") author: string,
-        @Body("description") description: string,
+        @Body("annotation") annotation: string,
         @Body("shelfId") shelfId: string,
     ): Promise<Book> {
-        return this.storage.updBook(bookId, name, author, description, shelfId);
+        return this.storage.updBook(bookId, name, author, annotation, shelfId);
     }
 
     @Delete("storage/delBook/:bookId")
@@ -71,11 +71,6 @@ export class StorageController {
     @Post("storage/setSource/:bookId")
     setSource(@Param("bookId") bookId: string, @Body("source") source: string): Promise<void> {
         return this.storage.setSource(bookId, source);
-    }
-
-    @Post("storage/importSource/:bookId")
-    importSource(@Param("bookId") bookId: string, @Body("source") source: string, @Body("fileExtension") fileExtension: string): Promise<void> {
-        return this.storage.importSource(bookId, source, fileExtension);
     }
 
     @Get("storage/getResult/:bookId")

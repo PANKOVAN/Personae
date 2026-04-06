@@ -27,7 +27,7 @@
         "editor.defaultFormatter": "esbenp.prettier-vscode"
     },
     "[xml]": {
-        "editor.defaultFormatter": "esbenp.prettier-vscode"
+        "editor.defaultFormatter": "redhat.vscode-xml"
     },
     "cSpell.words": ["ollama", "rsuite"]
 }
