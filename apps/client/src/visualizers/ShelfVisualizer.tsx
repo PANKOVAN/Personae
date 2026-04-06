@@ -1,11 +1,6 @@
 import type { AppStore } from "../store/appStore";
 import type { Book, Shelf } from "@personae/shared";
-import {
-    parseShelfBookTreeValue,
-    parseShelfFolderTreeValue,
-    shelfBookTreeValue,
-    shelfFolderTreeValue,
-} from "./shelfBookTree";
+import { parseShelfBookTreeValue, parseShelfFolderTreeValue, shelfBookTreeValue, shelfFolderTreeValue } from "./shelfBookTree";
 import { observer } from "mobx-react-lite";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -122,9 +117,9 @@ export const ShelfVisualizer = observer(function ShelfVisualizer({ store }: Prop
     const data: TreeNodeData[] = useMemo(() => {
         const shelves = store.shelves.map((shelf) => {
             const books = store.booksByShelfPath[shelf.id] ?? [];
-            const shelfRowIsCurrent = store.selectedShelfPath === shelf.id && store.selectedBookPath === null;
+            const shelfRowIsCurrent = store.selectedShelfId === shelf.id && store.selectedBookId === null;
             const children: TreeNodeData[] = books.map((b) => {
-                const bookIsCurrent = store.selectedShelfPath === shelf.id && store.selectedBookPath === b.id;
+                const bookIsCurrent = store.selectedShelfId === shelf.id && store.selectedBookId === b.id;
                 const bookKey = shelfBookTreeValue(shelf.id, b.id);
                 return {
                     value: bookKey,
@@ -253,14 +248,14 @@ export const ShelfVisualizer = observer(function ShelfVisualizer({ store }: Prop
             };
         });
         return shelves;
-    }, [store.shelves, store.booksByShelfPath, store.selectedShelfPath, store.selectedBookPath, shelfEditId, bookEditKey]);
+    }, [store.shelves, store.booksByShelfPath, store.selectedShelfId, store.selectedBookId, shelfEditId, bookEditKey]);
 
     const selectedKey =
-        store.selectedShelfPath == null
+        store.selectedShelfId == null
             ? undefined
-            : store.selectedBookPath != null
-              ? shelfBookTreeValue(store.selectedShelfPath, store.selectedBookPath)
-              : shelfFolderTreeValue(store.selectedShelfPath);
+            : store.selectedBookId != null
+              ? shelfBookTreeValue(store.selectedShelfId, store.selectedBookId)
+              : shelfFolderTreeValue(store.selectedShelfId);
 
     const treeValue = selectedKey != null && treeContainsValue(data, selectedKey) ? selectedKey : undefined;
 
@@ -273,10 +268,7 @@ export const ShelfVisualizer = observer(function ShelfVisualizer({ store }: Prop
             showIndentLine={false}
             onSelect={(_node, val, event) => {
                 const t = event?.target;
-                if (
-                    t instanceof Element &&
-                    (t.closest(".personae-tree-row-action") || t.closest(".personae-book-row-actions"))
-                ) {
+                if (t instanceof Element && (t.closest(".personae-tree-row-action") || t.closest(".personae-book-row-actions"))) {
                     return;
                 }
                 const key = typeof val === "string" ? val : val != null ? String(val) : "";
@@ -290,7 +282,7 @@ export const ShelfVisualizer = observer(function ShelfVisualizer({ store }: Prop
                 }
                 const { shelfPath, bookPath } = parseShelfBookTreeValue(key);
                 if (shelfPath && bookPath) {
-                    void store.selectBook(shelfPath, bookPath);
+                    void store.selectBook(bookPath);
                 }
             }}
         />

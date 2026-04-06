@@ -12,8 +12,8 @@ export class AppStore {
     books: Book[] = [];
     /** Книги по id полки. */
     booksByShelfPath: Record<string, Book[]> = {};
-    selectedShelfPath: string | null = null;
-    selectedBookPath: string | null = null;
+    selectedShelfId: string | null = null;
+    selectedBookId: string | null = null;
     sourceHtml: string | null = null;
     resultHtml: string | null = null;
     loading = false;
@@ -192,7 +192,7 @@ export class AppStore {
             const c = await r.json();
             const created = parseBookRow(c);
             await this.getBooks();
-            await this.selectBook(created.shelfId, created.id);
+            await this.selectBook(created.id);
         } catch (e) {
             runInAction(() => {
                 this.error = e instanceof Error ? e.message : String(e);
@@ -276,33 +276,16 @@ export class AppStore {
 
     async importBookFromFile(bookId: string, fileName: string, sourceText: string): Promise<boolean> {
         try {
-            const prepared = this.normalizeImportedSource(fileName, sourceText);
-            const book = this.books.find((b) => b.id === bookId);
-            if (!book) {
-                throw new Error("Книга не найдена.");
-            }
-
-            const updResp = await fetch(this.api(`storage/updBook/${encodeURIComponent(bookId)}`), {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    name: prepared.name || book.name,
-                    author: prepared.author,
-                    description: prepared.description,
-                    shelfId: book.shelfId,
-                }),
-            });
-            await this.testResponse(updResp);
-
+            const fileExtension = fileName.split(".").pop();
             const srcResp = await fetch(this.api(`storage/importSource/${encodeURIComponent(bookId)}`), {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ source: prepared.sourceXml }),
+                headers: { "Content-Type": `text/${fileExtension}; charset=utf-8` },
+                body: JSON.stringify({ fileExtension, source: sourceText }),
             });
             await this.testResponse(srcResp);
 
             await this.getBooks();
-            await this.selectBook(book.shelfId, bookId);
+            await this.selectBook(bookId);
             runInAction(() => {
                 this.error = null;
             });
@@ -317,15 +300,18 @@ export class AppStore {
 
     /** Выбрана только полка (без книги). */
     async selectShelf(shelfPath: string): Promise<void> {
-        this.selectedShelfPath = shelfPath;
-        this.selectedBookPath = null;
+        this.selectedShelfId = shelfPath;
+        this.selectedBookId = null;
         await Promise.all([this.loadSource(null), this.loadResult(null)]);
     }
 
-    async selectBook(shelfPath: string, bookPath: string) {
-        this.selectedShelfPath = shelfPath;
-        this.selectedBookPath = bookPath;
-        await Promise.all([this.loadSource(bookPath), this.loadResult(bookPath)]);
+    async selectBook(bookId: string) {
+        const book = this.books.find((b) => b.id === bookId);
+        if (book) {
+            this.selectedShelfId = book.shelfId;
+            this.selectedBookId = bookId;
+            await Promise.all([this.loadSource(bookId), this.loadResult(bookId)]);
+        }
     }
 
     private async loadSource(bookId: string | null) {

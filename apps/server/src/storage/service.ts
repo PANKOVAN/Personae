@@ -196,13 +196,8 @@ export class StorageService implements IStorage {
         }
         return Promise.resolve();
     }
-    async importSource(bookId: string, source: string): Promise<void> {
+    async importSource(bookId: string, source: string, fileExtension: string): Promise<void> {
         await this.open();
-        try {
-            await fs.writeFile(path.join(this.root, bookId, BOOK_FILES.source), source, "utf8");
-        } catch {
-            throw new InternalServerErrorException("Cannot write source");
-        }
         return Promise.resolve();
     }
 }

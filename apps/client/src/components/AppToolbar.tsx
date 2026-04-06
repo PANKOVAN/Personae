@@ -15,14 +15,19 @@ function ToolbarTip({ label, children }: { label: string; children: ReactElement
 }
 
 function stubToast(text: string): void {
-    void toaster.push(<Message type="info" showIcon>{text}</Message>, { placement: "topEnd", duration: 4000 });
+    void toaster.push(
+        <Message type="info" showIcon>
+            {text}
+        </Message>,
+        { placement: "topEnd", duration: 4000 },
+    );
 }
 
 export const AppToolbar = observer(function AppToolbar({ store }: Props) {
     const importInputRef = useRef<HTMLInputElement | null>(null);
 
     const onImportClick = (): void => {
-        if (!store.selectedBookPath) {
+        if (!store.selectedBookId) {
             stubToast("Сначала выберите книгу для импорта.");
             return;
         }
@@ -33,7 +38,7 @@ export const AppToolbar = observer(function AppToolbar({ store }: Props) {
     };
 
     const onImportFileChange = async (e: ChangeEvent<HTMLInputElement>): Promise<void> => {
-        const bookId = store.selectedBookPath;
+        const bookId = store.selectedBookId;
         const file = e.target.files?.[0];
         if (!file || !bookId) {
             return;
@@ -42,7 +47,12 @@ export const AppToolbar = observer(function AppToolbar({ store }: Props) {
             const sourceText = await file.text();
             const ok = await store.importBookFromFile(bookId, file.name, sourceText);
             if (ok) {
-                void toaster.push(<Message type="success" showIcon>Книга импортирована.</Message>, { placement: "topEnd", duration: 3000 });
+                void toaster.push(
+                    <Message type="success" showIcon>
+                        Книга импортирована.
+                    </Message>,
+                    { placement: "topEnd", duration: 3000 },
+                );
             }
         } catch {
             stubToast("Не удалось прочитать файл.");
@@ -86,12 +96,7 @@ export const AppToolbar = observer(function AppToolbar({ store }: Props) {
                 />
             </ToolbarTip>
             <ToolbarTip label="Импорт книги">
-                <IconButton
-                    appearance="ghost"
-                    size="sm"
-                    icon={<i className="codicon codicon-cloud-upload" aria-hidden />}
-                    onClick={onImportClick}
-                />
+                <IconButton appearance="ghost" size="sm" icon={<i className="codicon codicon-cloud-upload" aria-hidden />} onClick={onImportClick} />
             </ToolbarTip>
             <ToolbarTip label="Анализ текста">
                 <IconButton

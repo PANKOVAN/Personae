@@ -74,8 +74,8 @@ export class StorageController {
     }
 
     @Post("storage/importSource/:bookId")
-    importSource(@Param("bookId") bookId: string, @Body("source") source: string): Promise<void> {
-        return this.storage.importSource(bookId, source);
+    importSource(@Param("bookId") bookId: string, @Body("source") source: string, @Body("fileExtension") fileExtension: string): Promise<void> {
+        return this.storage.importSource(bookId, source, fileExtension);
     }
 
     @Get("storage/getResult/:bookId")
