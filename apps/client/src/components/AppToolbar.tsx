@@ -1,6 +1,7 @@
 import type { AppStore } from "../store/appStore";
 import { observer } from "mobx-react-lite";
-import type { ReactElement } from "react";
+import type { ChangeEvent, ReactElement } from "react";
+import { useRef } from "react";
 import { IconButton, Message, toaster, Tooltip, Whisper } from "rsuite";
 
 type Props = { store: AppStore };
@@ -18,8 +19,47 @@ function stubToast(text: string): void {
 }
 
 export const AppToolbar = observer(function AppToolbar({ store }: Props) {
+    const importInputRef = useRef<HTMLInputElement | null>(null);
+
+    const onImportClick = (): void => {
+        if (!store.selectedBookPath) {
+            stubToast("Сначала выберите книгу для импорта.");
+            return;
+        }
+        if (importInputRef.current) {
+            importInputRef.current.value = "";
+            importInputRef.current.click();
+        }
+    };
+
+    const onImportFileChange = async (e: ChangeEvent<HTMLInputElement>): Promise<void> => {
+        const bookId = store.selectedBookPath;
+        const file = e.target.files?.[0];
+        if (!file || !bookId) {
+            return;
+        }
+        try {
+            const sourceText = await file.text();
+            const ok = await store.importBookFromFile(bookId, file.name, sourceText);
+            if (ok) {
+                void toaster.push(<Message type="success" showIcon>Книга импортирована.</Message>, { placement: "topEnd", duration: 3000 });
+            }
+        } catch {
+            stubToast("Не удалось прочитать файл.");
+        }
+    };
+
     return (
         <aside className="personae-toolbar" aria-label="Действия">
+            <input
+                ref={importInputRef}
+                type="file"
+                accept=".htm,.html,.txt,.fb2,text/html,text/plain,application/x-fictionbook+xml,application/xml"
+                className="personae-hidden-file-input"
+                onChange={(e) => {
+                    void onImportFileChange(e);
+                }}
+            />
             <ToolbarTip label={store.showContents ? "Скрыть содержание" : "Показать содержание"}>
                 <IconButton
                     appearance={store.showContents ? "primary" : "ghost"}
@@ -50,7 +90,7 @@ export const AppToolbar = observer(function AppToolbar({ store }: Props) {
                     appearance="ghost"
                     size="sm"
                     icon={<i className="codicon codicon-cloud-upload" aria-hidden />}
-                    onClick={() => stubToast("Импорт будет подключён позже.")}
+                    onClick={onImportClick}
                 />
             </ToolbarTip>
             <ToolbarTip label="Анализ текста">

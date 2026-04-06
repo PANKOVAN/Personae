@@ -162,6 +162,10 @@ body {
     background: var(--rs-list-bg-hover);
 }
 
+.personae-hidden-file-input {
+    display: none;
+}
+
 .personae-shelf-row {
     display: flex;
     align-items: center;

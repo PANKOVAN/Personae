@@ -73,6 +73,11 @@ export class StorageController {
         return this.storage.setSource(bookId, source);
     }
 
+    @Post("storage/importSource/:bookId")
+    importSource(@Param("bookId") bookId: string, @Body("source") source: string): Promise<void> {
+        return this.storage.importSource(bookId, source);
+    }
+
     @Get("storage/getResult/:bookId")
     @Header("Content-Type", "application/json; charset=utf-8")
     getResult(@Param("bookId") bookId: string): Promise<string> {

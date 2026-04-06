@@ -3,13 +3,7 @@ import { makeAutoObservable, runInAction } from "mobx";
 import { settings } from "../settings";
 
 function parseBookRow(b: { id?: string; name?: string; author?: string; description?: string; shelfId?: string }): Book {
-    return new Book(
-        String(b.id ?? ""),
-        String(b.name ?? ""),
-        String(b.author ?? ""),
-        String(b.description ?? ""),
-        String(b.shelfId ?? ""),
-    );
+    return new Book(String(b.id ?? ""), String(b.name ?? ""), String(b.author ?? ""), String(b.description ?? ""), String(b.shelfId ?? ""));
 }
 
 export class AppStore {
@@ -20,8 +14,8 @@ export class AppStore {
     booksByShelfPath: Record<string, Book[]> = {};
     selectedShelfPath: string | null = null;
     selectedBookPath: string | null = null;
-    sourceText: string | null = null;
-    resultText: string | null = null;
+    sourceHtml: string | null = null;
+    resultHtml: string | null = null;
     loading = false;
     error: string | null = null;
 
@@ -38,6 +32,49 @@ export class AppStore {
     private api(path: string): string {
         const p = path.replace(/^\//, "");
         return `${settings.serverURL}/api/${p}`;
+    }
+
+    private decodeXmlText(value: string): string {
+        return value
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'")
+            .replace(/&amp;/g, "&")
+            .trim();
+    }
+
+    private escapeXmlText(value: string): string {
+        return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+    }
+
+    private extractTagValue(source: string, tag: string): string {
+        const re = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i");
+        const m = source.match(re);
+        return m ? this.decodeXmlText(m[1]) : "";
+    }
+
+    private normalizeImportedSource(fileName: string, source: string): { sourceXml: string; name: string; author: string; description: string } {
+        const fileTitle = fileName.replace(/\.[^.]+$/, "").trim() || "Новая книга";
+        const isPersonaeXml = /<personae[\s>]/i.test(source);
+        if (isPersonaeXml) {
+            const name = this.extractTagValue(source, "name") || fileTitle;
+            const author = this.extractTagValue(source, "author");
+            const description = this.extractTagValue(source, "annotation");
+            return { sourceXml: source, name, author, description };
+        }
+        const escapedBody = this.escapeXmlText(source);
+        const sourceXml = `<?xml version="1.0" encoding="UTF-8"?>
+<personae>
+  <description>
+    <name>${this.escapeXmlText(fileTitle)}</name>
+    <author></author>
+    <annotation></annotation>
+  </description>
+  <body>${escapedBody}</body>
+</personae>
+`;
+        return { sourceXml, name: fileTitle, author: "", description: "" };
     }
 
     toggleContents(): void {
@@ -82,9 +119,7 @@ export class AppStore {
     async getShelves(): Promise<void> {
         const r = await fetch(this.api("storage/getShelves"));
         const raw = await r.json();
-        const shelves: Shelf[] = Array.isArray(raw)
-            ? raw.map((s: { id?: string; name?: string }) => new Shelf(String(s.id ?? ""), String(s.name ?? "")))
-            : [];
+        const shelves: Shelf[] = Array.isArray(raw) ? raw.map((s: { id?: string; name?: string }) => new Shelf(String(s.id ?? ""), String(s.name ?? ""))) : [];
         runInAction(() => {
             this.shelves = shelves;
         });
@@ -167,22 +202,13 @@ export class AppStore {
 
     async deleteShelf(shelfId: string) {
         try {
-            const clearsSelection = this.selectedShelfPath === shelfId;
             const r = await fetch(this.api(`storage/delShelf/${encodeURIComponent(shelfId)}`), {
                 method: "DELETE",
             });
             await this.testResponse(r);
             await this.getShelves();
             await this.getBooks();
-            runInAction(() => {
-                if (clearsSelection) {
-                    this.selectedShelfPath = null;
-                    this.selectedBookPath = null;
-                    this.sourceText = null;
-                    this.resultText = null;
-                }
-                this.error = null;
-            });
+            await Promise.all([this.loadSource(null), this.loadResult(null)]);
         } catch (e) {
             runInAction(() => {
                 this.error = e instanceof Error ? e.message : String(e);
@@ -192,21 +218,12 @@ export class AppStore {
 
     async deleteBook(bookId: string) {
         try {
-            const clearsSelection = this.selectedBookPath === bookId;
             const r = await fetch(this.api(`storage/delBook/${encodeURIComponent(bookId)}`), {
                 method: "DELETE",
             });
             await this.testResponse(r);
             await this.getBooks();
-            runInAction(() => {
-                if (clearsSelection) {
-                    this.selectedShelfPath = null;
-                    this.selectedBookPath = null;
-                    this.sourceText = null;
-                    this.resultText = null;
-                }
-                this.error = null;
-            });
+            await Promise.all([this.loadSource(null), this.loadResult(null)]);
         } catch (e) {
             runInAction(() => {
                 this.error = e instanceof Error ? e.message : String(e);
@@ -257,58 +274,96 @@ export class AppStore {
         }
     }
 
+    async importBookFromFile(bookId: string, fileName: string, sourceText: string): Promise<boolean> {
+        try {
+            const prepared = this.normalizeImportedSource(fileName, sourceText);
+            const book = this.books.find((b) => b.id === bookId);
+            if (!book) {
+                throw new Error("Книга не найдена.");
+            }
+
+            const updResp = await fetch(this.api(`storage/updBook/${encodeURIComponent(bookId)}`), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    name: prepared.name || book.name,
+                    author: prepared.author,
+                    description: prepared.description,
+                    shelfId: book.shelfId,
+                }),
+            });
+            await this.testResponse(updResp);
+
+            const srcResp = await fetch(this.api(`storage/importSource/${encodeURIComponent(bookId)}`), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ source: prepared.sourceXml }),
+            });
+            await this.testResponse(srcResp);
+
+            await this.getBooks();
+            await this.selectBook(book.shelfId, bookId);
+            runInAction(() => {
+                this.error = null;
+            });
+            return true;
+        } catch (e) {
+            runInAction(() => {
+                this.error = e instanceof Error ? e.message : String(e);
+            });
+            return false;
+        }
+    }
+
     /** Выбрана только полка (без книги). */
-    selectShelf(shelfPath: string): void {
+    async selectShelf(shelfPath: string): Promise<void> {
         this.selectedShelfPath = shelfPath;
         this.selectedBookPath = null;
-        this.sourceText = null;
-        this.resultText = null;
+        await Promise.all([this.loadSource(null), this.loadResult(null)]);
     }
 
     async selectBook(shelfPath: string, bookPath: string) {
         this.selectedShelfPath = shelfPath;
         this.selectedBookPath = bookPath;
-        this.sourceText = null;
-        this.resultText = null;
         await Promise.all([this.loadSource(bookPath), this.loadResult(bookPath)]);
     }
 
-    private async loadSource(bookId: string) {
+    private async loadSource(bookId: string | null) {
         try {
-            const r = await fetch(this.api(`storage/getSource/${encodeURIComponent(bookId)}`));
+            const r = await fetch(this.api(`storage/getSource/${encodeURIComponent(bookId ?? "")}`));
             if (!r.ok) {
                 runInAction(() => {
-                    this.sourceText = `Ошибка загрузки source: ${r.status}`;
+                    this.sourceHtml = `Ошибка загрузки source: ${r.status}`;
                 });
                 return;
             }
             const t = await r.text();
             runInAction(() => {
-                this.sourceText = t;
+                this.sourceHtml = t;
             });
         } catch (e) {
             runInAction(() => {
-                this.sourceText = `Ошибка: ${e}`;
+                this.sourceHtml = `Ошибка: ${e}`;
             });
         }
     }
 
-    private async loadResult(bookId: string) {
+    private async loadResult(bookId: string | null) {
         try {
-            const r = await fetch(this.api(`storage/getResult/${encodeURIComponent(bookId)}`));
+            const r = await fetch(this.api(`storage/getResult/${encodeURIComponent(bookId ?? "")}`));
             if (!r.ok) {
                 runInAction(() => {
-                    this.resultText = `result.json недоступен (${r.status})`;
+                    this.resultHtml = `result.json недоступен (${r.status})`;
                 });
                 return;
             }
             const t = await r.text();
             runInAction(() => {
-                this.resultText = t;
+                this.resultHtml = t;
             });
         } catch (e) {
             runInAction(() => {
-                this.resultText = `Ошибка: ${e}`;
+                this.resultHtml = `Ошибка: ${e}`;
             });
         }
     }

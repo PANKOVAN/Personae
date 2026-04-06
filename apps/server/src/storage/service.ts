@@ -153,12 +153,15 @@ export class StorageService implements IStorage {
     async getSource(bookId: string): Promise<string> {
         await this.open();
         try {
-            let source = await fs.readFile(path.join(this.root, bookId, BOOK_FILES.source), "utf8");
-            return Promise.resolve(source);
+            if (bookId === "") {
+                return Promise.resolve("Книга не выбрана.");
+            } else {
+                let source = await fs.readFile(path.join(this.root, bookId, BOOK_FILES.source), "utf8");
+                return Promise.resolve(source);
+            }
         } catch {
-            throw new NotFoundException("Source not found");
+            return Promise.resolve("Книга не найдена или не загружена.");
         }
-        return Promise.resolve("");
     }
 
     async setSource(bookId: string, source: string): Promise<void> {
@@ -174,10 +177,14 @@ export class StorageService implements IStorage {
     async getResult(bookId: string): Promise<string> {
         await this.open();
         try {
-            let result = await fs.readFile(path.join(this.root, bookId, BOOK_FILES.result), "utf8");
-            return Promise.resolve(result);
+            if (bookId === "") {
+                return Promise.resolve("");
+            } else {
+                let result = await fs.readFile(path.join(this.root, bookId, BOOK_FILES.result), "utf8");
+                return Promise.resolve(JSON.stringify(JSON.parse(result) || {}, null, 2));
+            }
         } catch {
-            return Promise.resolve("{}");
+            return Promise.resolve("");
         }
     }
     async setResult(bookId: string, result: string): Promise<void> {
@@ -186,6 +193,15 @@ export class StorageService implements IStorage {
             await fs.writeFile(path.join(this.root, bookId, BOOK_FILES.result), result, "utf8");
         } catch {
             throw new InternalServerErrorException("Cannot write result");
+        }
+        return Promise.resolve();
+    }
+    async importSource(bookId: string, source: string): Promise<void> {
+        await this.open();
+        try {
+            await fs.writeFile(path.join(this.root, bookId, BOOK_FILES.source), source, "utf8");
+        } catch {
+            throw new InternalServerErrorException("Cannot write source");
         }
         return Promise.resolve();
     }

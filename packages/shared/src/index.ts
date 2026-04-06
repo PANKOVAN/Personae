@@ -40,4 +40,5 @@ export interface IStorage {
     setSource(bookId: string, source: string): Promise<void>;
     getResult(bookId: string): Promise<string>;
     setResult(bookId: string, result: string): Promise<void>;
+    importSource(bookId: string, source: string, fileExtension: string): Promise<void>;
 }
