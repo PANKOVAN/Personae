@@ -5,13 +5,13 @@ export function visualizerColWidths(store: AppStore): { shelf: number; source: n
     const c = store.showContents;
     const r = store.showResult;
     if (c && r) {
-        return { shelf: 7, source: 8, result: 8 };
+        return { shelf: 4, source: 11, result: 8 };
     }
     if (c && !r) {
-        return { shelf: 7, source: 16, result: 0 };
+        return { shelf: 4, source: 19, result: 0 };
     }
     if (!c && r) {
-        return { shelf: 0, source: 12, result: 11 };
+        return { shelf: 0, source: 16, result: 7 };
     }
     return { shelf: 0, source: 23, result: 0 };
 }
