@@ -106,6 +106,7 @@ export class StorageService implements IStorage {
         await this.open();
         const book = new Book(crypto.randomUUID(), "Новая книга", "", "", shelfId);
         this.books.push(book);
+        await this.save();
         return Promise.resolve(book);
     }
     async updBook(bookId: string, name: string, author: string, description: string, shelfId: string): Promise<Book> {
