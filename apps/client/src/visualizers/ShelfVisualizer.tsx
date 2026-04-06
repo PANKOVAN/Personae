@@ -3,7 +3,7 @@ import { parseShelfBookTreeValue, shelfBookTreeValue, shelfFolderTreeValue } fro
 import { observer } from "mobx-react-lite";
 import type { ReactNode } from "react";
 import { useMemo } from "react";
-import { Tree } from "rsuite";
+import { Button, Tree } from "rsuite";
 
 type Props = { store: AppStore };
 
@@ -26,7 +26,29 @@ export const ShelfVisualizer = observer(function ShelfVisualizer({ store }: Prop
                     </>
                 ),
             }));
-            return { value: shelfFolderTreeValue(shelf.id), label: shelf.name || shelf.id, children };
+            return {
+                value: shelfFolderTreeValue(shelf.id),
+                label: (
+                    <div className="personae-shelf-row">
+                        <span className="personae-shelf-row-name" title={shelf.name || shelf.id}>
+                            {shelf.name || shelf.id}
+                        </span>
+                        <Button
+                            appearance="link"
+                            size="xs"
+                            className="personae-shelf-row-add"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                void store.createBook(shelf.id);
+                            }}
+                        >
+                            Добавить книгу
+                        </Button>
+                    </div>
+                ),
+                children,
+            };
         });
         return shelves;
     }, [store.shelves, store.booksByShelfPath]);
