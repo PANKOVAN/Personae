@@ -152,9 +152,12 @@ export const ShelfVisualizer = observer(function ShelfVisualizer({ store }: Prop
                                     setBookEditKey(bookKey);
                                 }}
                             >
-                                <span className="personae-book-row-name">
-                                    {b.name || b.id}
-                                    {b.author ? <span className="personae-book-author">— {b.author}</span> : null}
+                                <span className="personae-book-row-icon" aria-hidden>
+                                    <i className="codicon codicon-book" />
+                                </span>
+                                <span className="personae-book-row-text">
+                                    <span className="personae-book-row-title">{b.name || b.id}</span>
+                                    {b.author ? <span className="personae-book-author">{b.author}</span> : null}
                                 </span>
                                 {bookIsCurrent ? (
                                     <span className="personae-book-row-actions personae-tree-row-action">
@@ -205,6 +208,9 @@ export const ShelfVisualizer = observer(function ShelfVisualizer({ store }: Prop
                                 setShelfEditId(shelf.id);
                             }}
                         >
+                            <span className="personae-shelf-row-icon" aria-hidden>
+                                <i className="codicon codicon-folder" />
+                            </span>
                             <span className="personae-shelf-row-name" title={shelf.name || shelf.id}>
                                 {shelf.name || shelf.id}
                             </span>

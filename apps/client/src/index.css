@@ -162,17 +162,24 @@ body {
     background: var(--rs-list-bg-hover);
 }
 
-.personae-book-author {
-    opacity: 0.7;
-    margin-left: 8px;
-}
-
 .personae-shelf-row {
     display: flex;
     align-items: center;
     gap: 6px;
     min-width: 0;
     width: 100%;
+}
+
+.personae-shelf-row-icon {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.85;
+}
+
+.personae-shelf-row-icon .codicon {
+    font-size: 16px;
 }
 
 .personae-shelf-row-name {
@@ -198,23 +205,55 @@ body {
 
 .personae-book-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 6px;
     min-width: 0;
     width: 100%;
 }
 
-.personae-book-row-name {
+.personae-book-row-icon {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    opacity: 0.85;
+}
+
+.personae-book-row-icon .codicon {
+    font-size: 16px;
+}
+
+.personae-book-row-text {
     flex: 1 1 auto;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    line-height: 1.3;
+}
+
+.personae-book-row-title {
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.personae-book-row .personae-book-author {
+    display: block;
+    font-size: 0.75em;
+    line-height: 1.25;
+    opacity: 0.75;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .personae-book-row-actions {
     display: flex;
     flex-shrink: 0;
     align-items: center;
+    align-self: center;
     margin-left: auto;
     position: relative;
     z-index: 1;
