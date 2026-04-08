@@ -11,11 +11,13 @@
         "typecheck": "tsc --noEmit -p tsconfig.json"
     },
     "dependencies": {
-        "@personae/shared": "*",
         "@nestjs/common": "^11.0.12",
         "@nestjs/core": "^11.0.12",
         "@nestjs/platform-fastify": "^11.0.12",
+        "@personae/shared": "*",
+        "dotenv": "^17.4.1",
         "fastify": "^5.2.0",
+        "jsdom": "^28.1.0",
         "reflect-metadata": "^0.2.2",
         "rxjs": "^7.8.1",
         "uuid": "^11.0.5"

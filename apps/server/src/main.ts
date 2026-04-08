@@ -1,7 +1,13 @@
 import "reflect-metadata";
+import * as dotenv from "dotenv";
+import * as path from "node:path";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, NestFastifyApplication } from "@nestjs/platform-fastify";
 import { AppModule } from "./app.module";
+
+// Поддерживаем запуск как из корня монорепо, так и из apps/server.
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+dotenv.config({ path: path.resolve(process.cwd(), "..", "..", ".env"), override: false });
 
 async function bootstrap() {
     const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), {

@@ -65,16 +65,3 @@ alwaysApply: true
 ## TSX файлы
 
 - использовать style только в крайних случаях
-
-## Формат source.html
-
-```xml
-<personae>
-    <description>
-        <name>наименование</name>
-        <author>наименование</author>
-        <annotation>наименование</annotation>
-    </description>
-    <body />
-</personae>
-```

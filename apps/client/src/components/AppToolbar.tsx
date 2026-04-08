@@ -36,6 +36,21 @@ export const AppToolbar = observer(function AppToolbar({ store }: Props) {
             importInputRef.current.click();
         }
     };
+    const onAnalyzeClick = async (): Promise<void> => {
+        if (!store.selectedBookId) {
+            stubToast("Сначала выберите книгу для анализа.");
+            return;
+        }
+        const ok = await store.analyzeBook(store.selectedBookId);
+        if (ok) {
+            void toaster.push(
+                <Message type="success" showIcon>
+                    Анализ завершен.
+                </Message>,
+                { placement: "topEnd", duration: 3000 },
+            );
+        }
+    };
 
     const onImportFileChange = async (e: ChangeEvent<HTMLInputElement>): Promise<void> => {
         const bookId = store.selectedBookId;
@@ -103,7 +118,9 @@ export const AppToolbar = observer(function AppToolbar({ store }: Props) {
                     appearance="ghost"
                     size="sm"
                     icon={<i className="codicon codicon-run" aria-hidden />}
-                    onClick={() => stubToast("Запуск анализа будет подключён позже.")}
+                    onClick={() => {
+                        void onAnalyzeClick();
+                    }}
                 />
             </ToolbarTip>
             <div className="personae-toolbar-footer">

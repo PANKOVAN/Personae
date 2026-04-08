@@ -2,6 +2,9 @@ import { BadRequestException, Injectable, InternalServerErrorException, NotFound
 import { BOOK_FILES, Shelf, Book, IStorage } from "@personae/shared";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { parseImportedSource } from "./source";
+import { Analyzer } from "./analyzer";
+import { decorateResult } from "./decorator";
 
 const EMPTY_SOURCE_HTML = `<?xml version="1.0" encoding="UTF-8"?>
 <personae>
@@ -170,33 +173,66 @@ export class StorageService implements IStorage {
     async setSource(bookId: string, source: string): Promise<void> {
         await this.open();
         try {
+            const parsed = parseImportedSource(source);
+            source = parsed.sourceHtml;
+            const book = this.books.find((b) => b.id === bookId);
+            if (book) {
+                if (parsed.name) {
+                    book.name = parsed.name;
+                }
+                if (parsed.author) {
+                    book.author = parsed.author;
+                }
+                if (parsed.annotation) {
+                    book.annotation = parsed.annotation;
+                }
+                await this.save();
+            }
             await fs.mkdir(path.join(this.root, bookId), { recursive: true });
             await fs.writeFile(path.join(this.root, bookId, BOOK_FILES.source), source, "utf8");
-        } catch {
-            throw new InternalServerErrorException("Cannot write source");
+            await this.setResult(bookId, undefined, "json");
+        } catch (e) {
+            throw new InternalServerErrorException("Cannot write source: " + e.message);
         }
         return Promise.resolve();
     }
-    async getResult(bookId: string): Promise<string> {
+    async getResult(bookId: string, mode: "json" | "html"): Promise<string> {
         await this.open();
         try {
             if (bookId === "") {
-                return Promise.resolve("");
+                return Promise.resolve("{}");
             } else {
                 let result = await fs.readFile(path.join(this.root, bookId, BOOK_FILES.result), "utf8");
-                return Promise.resolve(JSON.stringify(JSON.parse(result) || {}, null, 2));
+                if (mode === "html") {
+                    result = decorateResult(JSON.parse(result));
+                }
+                return Promise.resolve(result);
             }
         } catch {
-            return Promise.resolve("");
+            return Promise.resolve("{}");
         }
     }
-    async setResult(bookId: string, result: string): Promise<void> {
+    async setResult(bookId: string, result: string | any | undefined, mode: "json" | "refresh" | "continue"): Promise<void> {
         await this.open();
         try {
-            await fs.writeFile(path.join(this.root, bookId, BOOK_FILES.result), result, "utf8");
-        } catch {
-            throw new InternalServerErrorException("Cannot write result");
+            if (mode === "json") {
+                result = result ?? {};
+                if (typeof result != "string") {
+                    result = JSON.stringify(result);
+                }
+                await fs.writeFile(path.join(this.root, bookId, BOOK_FILES.result), result, "utf8");
+                return Promise.resolve();
+            }
+            if (mode === "continue") {
+                result = JSON.parse((await this.getResult(bookId, "json")) || "{}");
+            } else {
+                result = {};
+            }
+            const analyze = new Analyzer();
+            const source = await this.getSource(bookId);
+            result = await analyze.analyze(this, bookId, source, result);
+        } catch (e) {
+            throw new InternalServerErrorException("Cannot write result: " + e.message);
         }
-        return Promise.resolve();
     }
 }

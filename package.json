@@ -23,5 +23,9 @@
         "concurrently": "^9.1.2",
         "kill-port": "^2.0.1",
         "prettier": "^3.8.1"
+    },
+    "dependencies": {
+        "cheerio": "^1.2.0",
+        "openai": "^6.33.0"
     }
 }

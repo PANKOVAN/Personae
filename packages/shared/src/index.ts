@@ -38,6 +38,6 @@ export interface IStorage {
     delBook(bookId: string): Promise<void>;
     getSource(bookId: string): Promise<string>;
     setSource(bookId: string, source: string): Promise<void>;
-    getResult(bookId: string): Promise<string>;
-    setResult(bookId: string, result: string): Promise<void>;
+    getResult(bookId: string, mode: "json" | "html"): Promise<string>;
+    setResult(bookId: string, result: string | any | undefined, mode: "json" | "refresh" | "continue"): Promise<void>;
 }

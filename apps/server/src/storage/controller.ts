@@ -76,11 +76,15 @@ export class StorageController {
     @Get("storage/getResult/:bookId")
     @Header("Content-Type", "application/json; charset=utf-8")
     getResult(@Param("bookId") bookId: string): Promise<string> {
-        return this.storage.getResult(bookId);
+        return this.storage.getResult(bookId, "html");
     }
 
     @Post("storage/setResult/:bookId")
-    setResult(@Param("bookId") bookId: string, @Body("result") result: string): Promise<void> {
-        return this.storage.setResult(bookId, result);
+    setResult(
+        @Param("bookId") bookId: string,
+        @Body("result") result: string | any | undefined,
+        @Body("mode") mode: "json" | "refresh" | "continue",
+    ): Promise<void> {
+        return this.storage.setResult(bookId, result, mode);
     }
 }

@@ -375,3 +375,19 @@ body {
     line-height: 1.45;
     word-break: break-word;
 }
+
+.personae-source-visualizer title {
+    display: block;
+    margin: 0.9em 0 0.45em;
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.personae-source-visualizer subtitle {
+    display: block;
+    margin: 0.7em 0 0.35em;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.35;
+}

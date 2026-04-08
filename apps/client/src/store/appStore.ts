@@ -232,48 +232,21 @@ export class AppStore {
         }
     }
 
-    async importBookFromFile(bookId: string, fileName: string, sourceText: string): Promise<boolean> {
+    async importBookFromFile(bookId: string, fileName: string, source: string): Promise<boolean> {
         try {
-            const fileExtension = fileName.split(".").pop();
-            const book = this.books.find((b) => b.id === bookId);
-            if (!book) {
-                throw new Error("Книга не найдена");
-            }
-            if (fileExtension === "fb2") {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(sourceText, "application/xml");
-                const name = doc.querySelector("description>title-info>book-title")?.textContent || book.name;
-                const firstName = doc.querySelector("description>title-info>author>first-name")?.textContent || book.author;
-                const lastName = doc.querySelector("description>title-info>author>last-name")?.textContent || book.author;
-                const author = firstName || lastName ? firstName + " " + lastName : book.author;
-                const annotation = doc.querySelector("description>title-info>annotation")?.textContent || book.annotation;
-                const source = [...doc.querySelectorAll("body")]
-                    .map((b) => {
-                        return b.innerHTML
-                            .replaceAll("<title", "<h3")
-                            .replaceAll("</title>", "</h3>")
-                            .replaceAll("<subtitle", "<h4")
-                            .replaceAll("</subtitle>", "</h4>");
-                    })
-                    .join("\n");
-                await this.updateBook(bookId, name, author, annotation, book.shelfId);
+            const res = await fetch(this.api(`storage/setSource/${encodeURIComponent(bookId)}`), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ source: source }),
+            });
+            await this.testResponse(res);
 
-                const res = await fetch(this.api(`storage/setSource/${encodeURIComponent(bookId)}`), {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ source }),
-                });
-                await this.testResponse(res);
-
-                await this.getBooks();
-                await this.selectBook(bookId);
-                runInAction(() => {
-                    this.error = null;
-                });
-                return true;
-            } else {
-                throw new Error("Неподдерживаемый формат файла");
-            }
+            await this.getBooks();
+            await this.selectBook(bookId);
+            runInAction(() => {
+                this.error = null;
+            });
+            return true;
         } catch (e) {
             runInAction(() => {
                 this.error = e instanceof Error ? e.message : String(e);
@@ -335,6 +308,22 @@ export class AppStore {
             runInAction(() => {
                 this.resultHtml = `Ошибка: ${e}`;
             });
+        }
+    }
+    async analyzeBook(bookId: string): Promise<boolean> {
+        try {
+            const r = await fetch(this.api(`storage/setResult/${encodeURIComponent(bookId)}`), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ mode: "continue" }),
+            });
+            await this.testResponse(r);
+            return true;
+        } catch (e) {
+            runInAction(() => {
+                this.error = e instanceof Error ? e.message : String(e);
+            });
+            return false;
         }
     }
 }
