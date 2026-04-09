@@ -108,11 +108,11 @@ const WRONG_ALIASES = new Set<string>(
         .map((s) => hashCode(s)),
 );
 function hashCode(s: string): string {
-    return s
+    return (s || "")
         .trim()
         .toLowerCase()
         .replace(/ё/g, "е")
-        .replace(/[^\w\d]+/g, "");
+        .replaceAll(/[^a-zа-я0-1]+/g, "_");
 }
 
 export class Analyzer {
@@ -129,28 +129,22 @@ export class Analyzer {
     private getInstructions(): string {
         return `
             Ты анализатор художественного текста.
-            Твоя задача: извлечь всех персонажей-людей, сгруппировать алиасы и описать связи.
+            Твоя задача: извлечь всех персонажей-людей, сгруппировать все упоминания одного и того же человека в один объект и описать связи.
 
             Правила:
-
             - Работай только по переданному фрагменту текста.
             - Ничего не выдумывай; если не уверен, не добавляй.
             - Верни ответ строго по заданной JSON-схеме.
 
-            - Персонажи это люди, которые упоминаются в тексте по именам, отчествам, фамилиям, прозвищам.
+            - Персонажи это люди, которые упоминаются в тексте по именам, отчествам, фамилиям, прозвищам. 
+            - Персонажи могут быть упомянуты в разных падежах, склонениях, родах, числах. Обязательно нужно запомнить все варианты упоминания одного и того же персонажа.
             - Прозвище должно однозначно соответствовать человеку, которого оно обозначает. При сомнении такое обозначение не используй.
-
-            Местоимения и подстановки (запрет в структурированных полях):
-            - В полях name, aliases и relations[].name НЕЛЬЗЯ указывать местоимения и формы местоимений: он, она, оно, они; я, ты, мы, вы; мой, моя, моё, мои, твой, ваш, наш, свой и т.п.; его, её/ее, их; ему, ей, им, них, нём, ней; кто, что, кого, чего (как замена имени); себя, себе, собой, собою; никто/ничто в роли «безымянного персонажа».
-            - Не путай с именами: «ничто» как прозвище в кавычках в тексте может быть алиасом только если в тексте этот персонаж явно так назван; обычная анонимность через «он» в повествовании не считается упоминанием.
-            - Если в абзаце фигурирует только местоимение без имени или прозвища, не создавай из этого отдельного персонажа и не добавляй местоимение в aliases.
-            - В relations[].name указывай всегда имя/прозвище второго лица так же, как в поле name у соответствующей карточки (канон или повтор из текста), но не местоимение.
-
+            - Упоминание персонажей сделанные через местоимения не являются не нужно запоминать.
+            - Из всех упоминаний одного и того же персонажа определи каноническое имя в именительном падеже, по возможности максимально полное, по правилам русского языка.
+                        
             - Сгруппируй разные именные упоминания одного и того же человека в один объект.
             - Упоминания персонажей могут иметь разные падежи, склонения, род, число — включай все именные формы из фрагмента.
-            - Из именных форм определи каноническое имя в именительном падеже, по возможности максимально полное, по правилам русского языка.
-            - В aliases перечисли все варианты имени, отчества, фамилии и устойчивого прозвища в том виде, как они встречаются в исходном фрагменте (без местоимений).
-            - Для канонического имени используй все такие именные формы из фрагмента.
+            - В aliases перечисли все варианты имени, отчества, фамилии и устойчивого прозвища в том виде, именно так как они встречаются в исходном фрагменте.
             - В aliases не должно быть дубликатов одной и той же строки (одинаковый вариант имени или прозвища).
             - Сделай описание персонажа по тексту до 100 слов.
             - Обязательно сформируй список связанных персонажей. Нужно понять тип отношений между персонажами: жена, любовник, вместе пьют кофе, вместе учатся, вместе работают и т.д. 
@@ -161,19 +155,47 @@ export class Analyzer {
             Вот расшифровка свойств в JSON схеме:
             - entities - массив объектов персонажей.
             - name - каноническое имя персонажа в именительном падеже.
-            - aliases - только варианты имён, отчеств, фамилий и устойчивых прозвищ из текста (без местоимений), как в исходном фрагменте.
-            - description - характеристика персонажа или связи между персонажами по тексту  до 100 слов.
+            - aliases - упоминания персонажей как в тексте имён.
+            - description - характеристика персонажа между персонажами по тексту  до 100 слов.
             - relations - список связанных персонажей.
+            - relations[].name - каноническое имя персонажа с которым есть связь
+            - relations[].description - характеристика связи между персонажами по тексту до 100 слов, характеристика не должна содержать имени персонажа с которым есть связь.
 
             Исходный текст на русском языке. В ответе используй только русский язык.
         `;
     }
     private getPrompt(source: string): string {
         return `
-            Проанализируй текст в соответствии с инструкциями. Не включай в name, aliases и relations[].name местоимения (он, она, они и т.д.).
+            Проанализируй текст в соответствии с инструкциями. 
 
             Текст:
             ${source}
+        `;
+    }
+    private getMergeInstructions(): string {
+        return `
+            Ты анализатор художественного текста.
+            Твоя задача: по описанию двух персонажей определить являются ли они одним и тем же персонажем.
+            Правила:
+            - Работай только по переданному фрагменту текста.
+            - Ничего не выдумывай; если не уверен, не добавляй.
+            - Персонажи могут иметь разные имена. Но это не значит что они являются разными персонажами.
+            - Проанализируй варианты упоминаний персонажей и их характеристик.
+            - Верни ответ строго как число от 0 до 100, соответствующее вероятности того, что это один и тот же персонаж, где 0 - это точно разные персонажи, 100 - это точно один и тот же персонаж.
+        `;
+    }
+    private getMergePrompt(entity1: any, entity2: any): string {
+        return `
+        Проанализируй текст в соответствии с инструкциями. 
+
+        Персонаж 1:
+            Имя: ${entity1.name}
+            Упомянут как: ${entity1.aliases.map((a: any) => a.alias).join(", ")}
+            Характеристика: ${entity1.description}
+        Персонаж 2:
+            Имя: ${entity2.name}
+            Упомянут как: ${entity2.aliases.map((a: any) => a.alias).join(", ")}
+            Характеристика: ${entity2.description}
         `;
     }
     private *getChunks(source: string): Generator<Chunk> {
@@ -237,11 +259,7 @@ export class Analyzer {
             } else {
                 const aliases: any[] = [];
                 for (const alias of entity.aliases) {
-                    if (
-                        !existingEntity.aliases.find(
-                            (a: any) => hashCode(a.alias) === hashCode(alias.alias) && a.minChunk === minChunk && a.maxChunk === maxChunk,
-                        )
-                    ) {
+                    if (!aliases.find((a: any) => hashCode(a.alias) === hashCode(alias) && a.minChunk === minChunk && a.maxChunk === maxChunk)) {
                         aliases.push({ alias: alias, minChunk, maxChunk });
                     }
                 }
@@ -258,6 +276,8 @@ export class Analyzer {
         result.entities = result.entities ?? [];
         result.chunks = result.chunks ?? [];
 
+        const debugMode = process.env.DEBUG_MODE === "true";
+
         // Analyze text
         if (!result.analyze) {
             const start = new Date();
@@ -265,28 +285,37 @@ export class Analyzer {
             for (const chunk of this.getChunks(source)) {
                 if (result.chunks.includes(chunk.minChunk)) continue;
 
-                const response = await this.openai.responses.create({
-                    model: process.env.OPENAI_API_MODEL,
-                    instructions: this.getInstructions(),
-                    input: [
-                        {
-                            role: "user",
-                            content: [{ type: "input_text", text: this.getPrompt(chunk.text) }],
+                let text: string | undefined = undefined;
+                if (debugMode) {
+                    text = await storageService.getDebugData(bookId, `chunk_${chunk.index}.json`);
+                }
+                if (!text) {
+                    const response = await this.openai.responses.create({
+                        model: process.env.OPENAI_API_MODEL,
+                        instructions: this.getInstructions(),
+                        input: [
+                            {
+                                role: "user",
+                                content: [{ type: "input_text", text: this.getPrompt(chunk.text) }],
+                            },
+                        ],
+                        temperature: 0.0,
+                        text: {
+                            format: {
+                                type: "json_schema",
+                                name: "personae_characters",
+                                strict: true,
+                                schema: PERSONAE_RESULT_JSON_SCHEMA,
+                            },
                         },
-                    ],
-                    temperature: 0.0,
-                    text: {
-                        format: {
-                            type: "json_schema",
-                            name: "personae_characters",
-                            strict: true,
-                            schema: PERSONAE_RESULT_JSON_SCHEMA,
-                        },
-                    },
-                });
-                const text = response.output_text.replaceAll("```json", "").replaceAll("```", "").trim();
+                    });
+                    text = response.output_text.replaceAll("```json", "").replaceAll("```", "").trim();
+                    if (debugMode) {
+                        await storageService.setDebugData(bookId, `chunk_${chunk.index}.json`, text);
+                    }
+                }
                 try {
-                    const promptResult = JSON.parse(text);
+                    const promptResult = JSON.parse(text || "{}");
                     console.log(`${chunk.index}(${chunk.count})`);
                     this.mergeResult(result, promptResult, chunk.minChunk, chunk.maxChunk);
                 } catch (error) {
@@ -310,7 +339,55 @@ export class Analyzer {
         // Merge entities
         if (!result.merged) {
             console.log(`Start merge`);
+
+            const wrongAliases = new Set<string>();
+            result.entities.forEach((entity: any) => {
+                const goodAliases: any[] = [];
+                entity.aliases.forEach((alias: any) => {
+                    if (WRONG_ALIASES.has(hashCode(alias.alias))) {
+                        wrongAliases.add(alias.alias);
+                    } else {
+                        if (!goodAliases.find((a: any) => a.alias === alias.alias && a.minChunk === alias.minChunk && a.maxChunk === alias.maxChunk)) {
+                            goodAliases.push({ alias: alias.alias, minChunk: alias.minChunk, maxChunk: alias.maxChunk });
+                        }
+                    }
+                });
+                entity.aliases = goodAliases;
+            });
+            if (wrongAliases.size > 0) {
+                console.log(`${wrongAliases.size} wrong aliases found`);
+                console.log(Array.from(wrongAliases).join(", "));
+            }
+
             const candidates = this.getMergeCandidates(result);
+
+            for (const candidate of candidates) {
+                let mainIndex: number = candidate.shift() ?? -1;
+                if (candidate.length > 1) {
+                    candidates.push(candidate.slice(0));
+                }
+                while (candidate.length > 0) {
+                    let altIndex: number = candidate.shift() ?? -1;
+                    const response = await this.openai.responses.create({
+                        model: process.env.OPENAI_API_MODEL,
+                        instructions: this.getMergeInstructions(),
+                        input: [
+                            {
+                                role: "user",
+                                content: [{ type: "input_text", text: this.getMergePrompt(result.entities[mainIndex], result.entities[altIndex]) }],
+                            },
+                        ],
+                        temperature: 0.0,
+                    });
+                    const probability = parseInt(response.output_text);
+                    if (probability > 50) {
+                        console.log(`${result.entities[mainIndex].name} and ${result.entities[altIndex].name} are merged`);
+                    } else {
+                        console.log(`${result.entities[mainIndex].name} and ${result.entities[altIndex].name} are not merged`);
+                    }
+                }
+            }
+
             await storageService.setResult(bookId, result, "json");
             console.log(`End merge`);
         }
@@ -320,19 +397,23 @@ export class Analyzer {
         const candidates: number[][] = [];
         result.entities.forEach((a: any, i: number) => {
             const group = new Set<number>();
-            const aNames = a.aliases.map((a: any) => a.alias);
-            aNames.push(a.name);
+            const aNames = a.aliases.map((a: any) => hashCode(a.alias));
+            aNames.push(hashCode(a.name));
             result.entities.slice(i + 1).forEach((b: any) => {
-                if (a.name.includes(b.name) || b.name.includes(a.name)) {
-                    const bNames = b.aliases.map((b: any) => b.alias);
-                    bNames.push(b.name);
-                    const commonNames = aNames.filter((name: string) => bNames.includes(name));
-                    if (commonNames.length > 0) {
-                        group.add(a.id);
-                        group.add(b.id);
-                        console.log(`${a.name} and ${b.name} are merged`);
-                    }
+                //if (a.name.includes(b.name) || b.name.includes(a.name)) {
+                const bNames = b.aliases.map((b: any) => hashCode(b.alias));
+                bNames.push(hashCode(b.name));
+                const commonNames = aNames.filter((name: string) => bNames.includes(name));
+                if (commonNames.length > 0) {
+                    group.add(a.id);
+                    group.add(b.id);
+                    console.log(`${a.name} and ${b.name} will be merged`);
+                } else if (hashCode(a.name).split("_").includes(hashCode(b.name)) || hashCode(b.name).split("_").includes(hashCode(a.name))) {
+                    group.add(a.id);
+                    group.add(b.id);
+                    console.log(`${a.name} and ${b.name} will be merged`);
                 }
+                //}
             });
             if (group.size > 0) {
                 candidates.push([...group.values()]);

@@ -235,4 +235,22 @@ export class StorageService implements IStorage {
             throw new InternalServerErrorException("Cannot write result: " + e.message);
         }
     }
+    async setDebugData(bookId: string, fileName: string, source: string): Promise<void> {
+        await this.open();
+        try {
+            await fs.mkdir(path.join(this.root, bookId), { recursive: true });
+            await fs.writeFile(path.join(this.root, bookId, fileName), source, "utf8");
+        } catch (e) {
+            throw new InternalServerErrorException("Cannot write debug data: " + e.message);
+        }
+        return Promise.resolve();
+    }
+    async getDebugData(bookId: string, fileName: string): Promise<string | undefined> {
+        await this.open();
+        try {
+            return await fs.readFile(path.join(this.root, bookId, fileName), "utf8");
+        } catch (e) {
+            return undefined;
+        }
+    }
 }
