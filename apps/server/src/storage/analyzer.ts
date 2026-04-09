@@ -44,58 +44,76 @@ type Chunk = {
     count: number;
 };
 
-/** Формы без ё — сравнение через norm(). */
-const PRONOUN_OR_ANAPHORA = new Set<string>(
+/** Длительность для лога: hh.mm.ss (по целым секундам). */
+function formatDurationForLog(ms: number): string {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const s = totalSec % 60;
+    const totalMin = Math.floor(totalSec / 60);
+    const m = totalMin % 60;
+    const h = Math.floor(totalMin / 60);
+    const p = (n: number) => n.toString().padStart(2, "0");
+    return `${p(h)}.${p(m)}.${p(s)}`;
+}
+
+const WRONG_ALIASES = new Set<string>(
     `
-он она оно они
-его ее их ему ей им ею
-нем ней них ним ними
-него нее него ней
-меня мне мной мною
-тебя тебе тобой тобою
-нас нам нами
-вас вам вами
-мы вы ты я
-мой моя мое мои мою моим моими моем моему
-твой твоя твое твои твою твоим твоими твоем твоему
-наш наша наше наши нашу нашим нашими нашем нашему
-ваш ваша ваше ваши вашу вашим вашими вашем вашему
-свой своя свое свои свою своим своими своем своему своего своей
-себя себе собой собою
-кто что кого чего кому чем кем чем ком чем
-который которая которое которые которого которой которому которым которых
-какой какая какое какие
-чей чья чье чьи
-никто ничто никого ничего
-ктото что-то кое-кто кое-что
-это эта этот эти
-тот та то те
-такой такая такое такие
-столько сколько
-сам сама сами само саму самим самих самом
-весь вся все всего всей всем всеми
-иной иная иное иные
-другой другая другое другие
-один одна одно одни одну одним одних
-какойто какаято какоето какието
-ктото чтото
-лишь
-тут там туто
-здесь
-куда
-откуда
-где
-туда
-сюда
-оттуд
-отиуд
-почему
-зачем
-отчего
-`
+    он она оно они
+    его ее их ему ей им ею
+    нем ней них ним ними
+    него нее него ней
+    меня мне мной мною
+    тебя тебе тобой тобою
+    нас нам нами
+    вас вам вами
+    мы вы ты я
+    мой моя мое мои мою моим моими моем моему
+    твой твоя твое твои твою твоим твоими твоем твоему
+    наш наша наше наши нашу нашим нашими нашем нашему
+    ваш ваша ваше ваши вашу вашим вашими вашем вашему
+    свой своя свое свои свою своим своими своем своему своего своей
+    себя себе собой собою
+    кто что кого чего кому чем кем чем ком чем
+    который которая которое которые которого которой которому которым которых
+    какой какая какое какие
+    чей чья чье чьи
+    никто ничто никого ничего
+    ктото что-то кое-кто кое-что
+    это эта этот эти
+    тот та то те
+    такой такая такое такие
+    столько сколько
+    сам сама сами само саму самим самих самом
+    весь вся все всего всей всем всеми
+    иной иная иное иные
+    другой другая другое другие
+    один одна одно одни одну одним одних
+    какойто какаято какоето какието
+    ктото чтото
+    лишь
+    тут там туто
+    здесь
+    куда
+    откуда
+    где
+    туда
+    сюда
+    оттуд
+    отиуд
+    почему
+    зачем
+    отчего
+    `
         .trim()
-        .split(/\s+/),
+        .split(/\s+/)
+        .map((s) => hashCode(s)),
 );
+function hashCode(s: string): string {
+    return s
+        .trim()
+        .toLowerCase()
+        .replace(/ё/g, "е")
+        .replace(/[^\w\d]+/g, "");
+}
 
 export class Analyzer {
     private openai: OpenAI;
@@ -191,26 +209,22 @@ export class Analyzer {
         }
         return;
     }
-    norm(s: string): string {
-        return s.trim().toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ");
-    }
     mergeResult(result: any, promptResult: any, minChunk: number, maxChunk: number): any {
         for (const entity of promptResult.entities) {
-            entity.aliases = entity.aliases.filter((a: any) => !PRONOUN_OR_ANAPHORA.has(this.norm(a)));
-            const existingEntity = result.entities.find((e: any) => e.name === entity.name);
+            const existingEntity = result.entities.find((e: any) => hashCode(e.name) === hashCode(entity.name));
             if (existingEntity) {
                 if (!existingEntity.description.includes(entity.description)) existingEntity.description += "\n" + entity.description;
                 for (const alias of entity.aliases) {
-                    if (!existingEntity.aliases.find((a: any) => a.alias === alias.alias && a.minChunk === minChunk && a.maxChunk === maxChunk)) {
-                        existingEntity.aliases.push({
-                            alias: alias,
-                            minChunk,
-                            maxChunk,
-                        });
+                    if (
+                        !existingEntity.aliases.find(
+                            (a: any) => hashCode(a.alias) === hashCode(alias.alias) && a.minChunk === minChunk && a.maxChunk === maxChunk,
+                        )
+                    ) {
+                        existingEntity.aliases.push({ alias: alias, minChunk, maxChunk });
                     }
                 }
                 for (const relation of entity.relations) {
-                    const existingRelation = existingEntity.relations.find((r: any) => r.name === relation.name);
+                    const existingRelation = existingEntity.relations.find((r: any) => hashCode(r.name) === hashCode(relation.name));
                     if (existingRelation) {
                         if (!existingRelation.description.includes(relation.description)) existingRelation.description += "\n" + relation.description;
                     } else {
@@ -221,11 +235,17 @@ export class Analyzer {
                     }
                 }
             } else {
-                entity.aliases = entity.aliases.map((a: any) => ({
-                    alias: a,
-                    minChunk,
-                    maxChunk,
-                }));
+                const aliases: any[] = [];
+                for (const alias of entity.aliases) {
+                    if (
+                        !existingEntity.aliases.find(
+                            (a: any) => hashCode(a.alias) === hashCode(alias.alias) && a.minChunk === minChunk && a.maxChunk === maxChunk,
+                        )
+                    ) {
+                        aliases.push({ alias: alias, minChunk, maxChunk });
+                    }
+                }
+                entity.aliases = aliases;
                 result.entities.push(entity);
             }
         }
@@ -238,7 +258,9 @@ export class Analyzer {
         result.entities = result.entities ?? [];
         result.chunks = result.chunks ?? [];
 
+        // Analyze text
         if (!result.analyze) {
+            const start = new Date();
             console.log(`Start analyze: ${source.length} characters`);
             for (const chunk of this.getChunks(source)) {
                 if (result.chunks.includes(chunk.minChunk)) continue;
@@ -273,10 +295,19 @@ export class Analyzer {
                 }
                 result.chunks.push(chunk.minChunk);
             }
+
+            result.entities.forEach((entity: any, index: number) => {
+                entity.id = index;
+            });
+
+            result.model = process.env.OPENAI_API_MODEL;
+            result.duration = new Date().getTime() - start.getTime();
             result.analyze = true;
             await storageService.setResult(bookId, result, "json");
-            console.log(`End analyze`);
+            console.log(`${result.entities.length} entities found`);
+            console.log(`End analyze ${formatDurationForLog(result.duration)}`);
         }
+        // Merge entities
         if (!result.merged) {
             console.log(`Start merge`);
             const candidates = this.getMergeCandidates(result);
@@ -287,9 +318,6 @@ export class Analyzer {
     }
     getMergeCandidates(result: any): number[][] {
         const candidates: number[][] = [];
-        result.entities.forEach((entity: any, index: number) => {
-            entity.id = index;
-        });
         result.entities.forEach((a: any, i: number) => {
             const group = new Set<number>();
             const aNames = a.aliases.map((a: any) => a.alias);
