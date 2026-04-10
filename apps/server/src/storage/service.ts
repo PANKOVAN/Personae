@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
+import { Injectable, InternalServerErrorException } from "@nestjs/common";
 import { BOOK_FILES, Shelf, Book, IStorage } from "@personae/shared";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -208,8 +208,9 @@ export class StorageService implements IStorage {
                 }
                 return Promise.resolve(result);
             }
-        } catch {
-            return Promise.resolve("{}");
+        } catch (e: any) {
+            console.error("Error: " + e.message);
+            return Promise.resolve("");
         }
     }
     async setResult(bookId: string, result: string | any | undefined, mode: "json" | "refresh" | "continue"): Promise<void> {
@@ -238,8 +239,8 @@ export class StorageService implements IStorage {
     async setDebugData(bookId: string, fileName: string, source: string): Promise<void> {
         await this.open();
         try {
-            await fs.mkdir(path.join(this.root, bookId), { recursive: true });
-            await fs.writeFile(path.join(this.root, bookId, fileName), source, "utf8");
+            await fs.mkdir(path.join(this.root, bookId, "debug"), { recursive: true });
+            await fs.writeFile(path.join(this.root, bookId, "debug", fileName), source, "utf8");
         } catch (e) {
             throw new InternalServerErrorException("Cannot write debug data: " + e.message);
         }
@@ -248,9 +249,20 @@ export class StorageService implements IStorage {
     async getDebugData(bookId: string, fileName: string): Promise<string | undefined> {
         await this.open();
         try {
-            return await fs.readFile(path.join(this.root, bookId, fileName), "utf8");
+            return await fs.readFile(path.join(this.root, bookId, "debug", fileName), "utf8");
         } catch (e) {
             return undefined;
         }
+    }
+
+    /** Сохраняет байты в `{bookId}/downloaded_images/{fileName}` (без кеша и API-раздачи). */
+    async saveDownloadedWebImage(bookId: string, fileName: string, data: Buffer): Promise<void> {
+        await this.open();
+        if (!/^[\da-z_.-]+$/i.test(fileName) || fileName.length > 220) {
+            throw new InternalServerErrorException("Invalid downloaded image file name");
+        }
+        const dir = path.join(this.root, bookId, "downloaded_images");
+        await fs.mkdir(dir, { recursive: true });
+        await fs.writeFile(path.join(dir, fileName), data);
     }
 }
