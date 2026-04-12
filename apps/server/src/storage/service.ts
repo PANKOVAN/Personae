@@ -255,14 +255,11 @@ export class StorageService implements IStorage {
         }
     }
 
-    /** Сохраняет байты в `{bookId}/downloaded_images/{fileName}` (без кеша и API-раздачи). */
-    async saveDownloadedWebImage(bookId: string, fileName: string, data: Buffer): Promise<void> {
+    async saveDownloadedWebImage(bookId: string, name: string, fileName: string, data: Buffer): Promise<string> {
         await this.open();
-        if (!/^[\da-z_.-]+$/i.test(fileName) || fileName.length > 220) {
-            throw new InternalServerErrorException("Invalid downloaded image file name");
-        }
-        const dir = path.join(this.root, bookId, "downloaded_images");
+        const dir = path.join(this.root, bookId, "images", name);
         await fs.mkdir(dir, { recursive: true });
         await fs.writeFile(path.join(dir, fileName), data);
+        return Promise.resolve(path.join(bookId, "images", name, fileName).replace(/\\/g, "/"));
     }
 }

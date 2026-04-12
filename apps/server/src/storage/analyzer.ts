@@ -1,6 +1,140 @@
 import { OpenAI } from "openai";
 import { JSDOM } from "jsdom";
 import { StorageService } from "./service";
+import * as path from "node:path";
+
+/** Wikimedia и др. блокируют анонимные/дефолтные клиенты; см. meta.wikimedia.org/wiki/User-Agent_policy */
+function imageFetchUserAgent(): string {
+    const custom = process.env.HTTP_IMAGE_USER_AGENT?.trim();
+    if (custom) {
+        return custom;
+    }
+    return `Personae/1.0 (Node.js ${process.version}; local book analysis)`;
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfterMs(res: Response): number {
+    const h = res.headers.get("retry-after");
+    if (h) {
+        const sec = parseInt(h, 10);
+        if (!Number.isNaN(sec)) {
+            return Math.min(sec * 1000, 120_000);
+        }
+    }
+    return 2000 + Math.floor(Math.random() * 1500);
+}
+
+function isWikimediaUploadUrl(url: string): boolean {
+    try {
+        const h = new URL(url).hostname;
+        return h === "upload.wikimedia.org" || h.endsWith(".wikimedia.org");
+    } catch {
+        return false;
+    }
+}
+
+/** При 404 на upload.wikimedia.org запрашиваем канонический URL файла через API Commons. */
+async function resolveCommonsImageUrlFromUpload404(uploadUrl: string): Promise<string | null> {
+    try {
+        if (!isWikimediaUploadUrl(uploadUrl)) {
+            return null;
+        }
+        const u = new URL(uploadUrl);
+        const base = decodeURIComponent(path.basename(u.pathname));
+        if (!base || !/\.(jpe?g|png|gif|webp|svg)$/i.test(base)) {
+            return null;
+        }
+        const title = `File:${base}`;
+        const api = new URL("https://commons.wikimedia.org/w/api.php");
+        api.searchParams.set("action", "query");
+        api.searchParams.set("format", "json");
+        api.searchParams.set("prop", "imageinfo");
+        api.searchParams.set("iiprop", "url");
+        api.searchParams.set("titles", title);
+        const r = await fetch(api.toString(), {
+            headers: { "User-Agent": imageFetchUserAgent(), Accept: "application/json" },
+        });
+        if (!r.ok) {
+            return null;
+        }
+        const j = (await r.json()) as {
+            query?: { pages?: Record<string, { missing?: string; imageinfo?: { url?: string }[] }> };
+        };
+        const pages = j.query?.pages;
+        if (!pages) {
+            return null;
+        }
+        const page = Object.values(pages)[0];
+        if (!page || page.missing !== undefined || !page.imageinfo?.[0]?.url) {
+            return null;
+        }
+        const direct = page.imageinfo[0].url;
+        return typeof direct === "string" ? direct : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Загрузка с учётом 429/503 и 404 (Commons API). Не читает тело ответа — только метаданные до успешного ответа.
+ */
+async function fetchRemoteImageResponse(imageUrl: string, timeoutMs: number): Promise<{ res: Response; urlUsed: string } | null> {
+    let url = imageUrl.trim();
+    let triedCommonsResolve = false;
+    const maxRounds = 10;
+
+    for (let i = 0; i < maxRounds; i++) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        let res: Response;
+        try {
+            res = await fetch(url, {
+                method: "GET",
+                redirect: "follow",
+                signal: controller.signal,
+                headers: {
+                    Accept: "*/*",
+                    "User-Agent": imageFetchUserAgent(),
+                },
+            });
+        } catch {
+            clearTimeout(timer);
+            await sleep(1200 + i * 400);
+            continue;
+        } finally {
+            clearTimeout(timer);
+        }
+
+        if (res.ok) {
+            return { res, urlUsed: url };
+        }
+
+        const status = res.status;
+        await res.arrayBuffer().catch(() => {});
+
+        if (status === 429 || status === 503 || status === 502) {
+            await sleep(parseRetryAfterMs(res) + i * 400);
+            continue;
+        }
+
+        if (status === 404 && isWikimediaUploadUrl(url) && !triedCommonsResolve) {
+            triedCommonsResolve = true;
+            const alt = await resolveCommonsImageUrlFromUpload404(url);
+            if (alt) {
+                const same = alt === url;
+                url = alt;
+                await sleep(same ? 2000 : 500);
+                continue;
+            }
+        }
+
+        return null;
+    }
+    return null;
+}
 
 /** JSON Schema для Structured Outputs (Responses API: text.format). */
 const PERSONAE_RESULT_JSON_SCHEMA = {
@@ -82,6 +216,59 @@ function formatDurationForLog(ms: number): string {
     return `${p(h)}.${p(m)}.${p(s)}`;
 }
 
+/** Строчные русские буквы → латиница (для стабильных ключей). */
+const CYR_TO_LAT: Record<string, string> = {
+    а: "a",
+    б: "b",
+    в: "v",
+    г: "g",
+    д: "d",
+    е: "e",
+    ё: "e",
+    ж: "zh",
+    з: "z",
+    и: "i",
+    й: "y",
+    к: "k",
+    л: "l",
+    м: "m",
+    н: "n",
+    о: "o",
+    п: "p",
+    р: "r",
+    с: "s",
+    т: "t",
+    у: "u",
+    ф: "f",
+    х: "h",
+    ц: "ts",
+    ч: "ch",
+    ш: "sh",
+    щ: "shch",
+    ъ: "",
+    ы: "y",
+    ь: "",
+    э: "e",
+    ю: "yu",
+    я: "ya",
+};
+
+function hashCode(s: string): string {
+    const lower = (s || "").trim().toLowerCase();
+    let t = "";
+    for (const ch of lower) {
+        const lat = CYR_TO_LAT[ch];
+        if (lat !== undefined) {
+            t += lat;
+        } else if (/[a-z0-9]/.test(ch)) {
+            t += ch;
+        } else {
+            t += "_";
+        }
+    }
+    return t.replace(/_+/g, "_").replace(/^_|_$/g, "");
+}
+
 const WRONG_ALIASES = new Set<string>(
     `
     он она оно они
@@ -134,19 +321,6 @@ const WRONG_ALIASES = new Set<string>(
         .split(/\s+/)
         .map((s) => hashCode(s)),
 );
-function hashCode(s: string): string {
-    return (s || "")
-        .trim()
-        .toLowerCase()
-        .replace(/ё/g, "е")
-        .replaceAll(/[^a-zа-я0-1]+/g, "_");
-}
-
-function clampPercent(n: unknown): number {
-    const x = typeof n === "number" ? n : parseInt(String(n), 10);
-    if (Number.isNaN(x)) return 0;
-    return Math.max(0, Math.min(100, Math.round(x)));
-}
 
 function mergeHistoricalLikelihood(target: any, incoming: any): void {
     target.historicalLikelihood = Math.max(target.historicalLikelihood, incoming.historicalLikelihood);
@@ -260,25 +434,56 @@ export class Analyzer {
     }
     private getWebSearchInstructions(): string {
         return `
-        Ищи в интернете только проверяемые факты. 
-        Не придумывай ссылки и URL картинок. 
+        Ищи в интернете только проверяемые факты.
+        Не придумывай ссылки и URL картинок — только то, что реально встретилось в результатах поиска.
         Если не уверен — пиши осторожно и указывай источники.
+
+        Поиск картинок (imageUrls) — отдельная задача:
+        - Сделай минимум один явный поиск, ориентированный на изображения: запросы вроде
+          «имя + portrait», «имя + photo», «имя фото портрет», для исторических лиц — также
+          запрос по англоязычному имени и словам wikipedia, wikimedia, commons.
+        - Предпочитай стабильные прямые ссылки на файлы изображений (https, часто .jpg / .jpeg / .png / .webp)
+          и материалы Wikimedia Commons / иллюстрации из Википедии; избегай главных страниц поисковиков и голых HTML-страниц без картинки.
+        - В imageUrls попадают только URL, по которым в браузере открывается именно файл или явная картинка; не дублируй один и тот же снимок.
+        - До 3 разных изображений из разных источников, если находятся.
+
         Верни ответ строго как JSON-объект с полями:
-        - summary - краткое описание персонажа по статье в интернете
-        - sources - массив ссылок на источники не больше 3 ссылок
-        - imageUrls - массив URL картинок не больше 3 URL картинок
-        - используй дополнительное описание персонажа только для поиска
-        - не используй дополнительное описание персонажа для краткого описания персонажа по статье в интернете
-        - для ответа используй только русский язык.
+        - summary — краткое описание персонажа по материалам в интернете
+        - sources — массив источников, не больше 3 пунктов (title + url)
+        - imageUrls — массив URL изображений, не больше 3
+        - Дополнительное описание персонажа используй только как подсказку для формулировки поисковых запросов, не копируй его в summary дословно.
+        - Текст в summary и в полях sources (title) — на русском языке.
         `;
     }
+    /** Ограничение длины описания в запросе web search: иначе вход переполняет контекст и API даёт max_tokens < 1. */
+    private truncateTextForWebSearchContext(text: string): string {
+        const raw = process.env.WEB_SEARCH_DESCRIPTION_MAX_CHARS ?? "8000";
+        const maxChars = Math.max(1000, parseInt(raw, 10) || 8000);
+        const t = String(text ?? "").trim();
+        if (t.length <= maxChars) {
+            return t;
+        }
+        return `${t.slice(0, maxChars)}\n\n[… фрагмент обрезан: полное описание слишком длинное для запроса поиска]`;
+    }
+
     private getWebSearchPrompt(entity: any): string {
+        const desc = this.truncateTextForWebSearchContext(entity.description ?? "");
         return `
         Произведи поиск в интернете в соответствии с инструкциями.
 
         Персонаж: ${entity.name}
-        Дополнительное описание: ${entity.description}
+        Дополнительное описание (для контекста запросов): ${desc}
+
+        Шаги: (1) факты и статьи для summary и sources; (2) отдельно — поиск иллюстраций
+        (портрет, фото, гравюра, Wikimedia Commons / Википедия, при необходимости запрос на английском).
         `;
+    }
+
+    /** Параметры встроенного web_search: меньше объём выдачи — иначе API режет ответ (лимит ~640k символов на генерацию). */
+    private getWebSearchToolSpec(): { type: "web_search"; search_context_size: "low" | "medium" | "high" } {
+        const raw = (process.env.WEB_SEARCH_CONTEXT_SIZE ?? "low").toLowerCase();
+        const search_context_size = raw === "medium" || raw === "high" ? raw : "low";
+        return { type: "web_search", search_context_size };
     }
     private *getChunks(source: string): Generator<Chunk> {
         let chunkSize = parseInt(process.env.CHUNK_SIZE ?? "20000");
@@ -489,7 +694,7 @@ export class Analyzer {
         //Web search
         if (!result.webSearch) {
             console.log(`Start web search`);
-            for (const entity of result.entities.slice(0, 3)) {
+            for (const entity of result.entities.slice(0, 10)) {
                 if (entity.historicalLikelihood > 0) {
                     const response = await this.responseAI({
                         name: "Web search",
@@ -500,7 +705,7 @@ export class Analyzer {
                         debugResultName: `web_search_${hashCode(entity.name)}.json`,
                         jsonSchema: WEB_SEARCH_RESULT_JSON_SCHEMA,
                         jsonSchemaFormatName: "personae_web_search",
-                        tools: [{ type: "web_search" }],
+                        tools: [this.getWebSearchToolSpec()],
                     });
                     entity.webSearch = response;
                 }
@@ -511,71 +716,16 @@ export class Analyzer {
             console.log(`End web search`);
         }
         // Download images
-        if (!result.downloadImages) {
-            console.log(`Start download images`);
-            const maxBytes = 5 * 1024 * 1024;
-            const timeoutMs = 30_000;
-            for (const entity of result.entities) {
-                const ws = entity.webSearch;
-                const urls = Array.isArray(ws?.imageUrls) ? ws.imageUrls : [];
-                for (let i = 0; i < urls.length; i++) {
-                    const imageUrl = urls[i];
-                    if (typeof imageUrl !== "string" || !/^https:\/\//i.test(imageUrl.trim())) {
-                        continue;
-                    }
-                    try {
-                        const controller = new AbortController();
-                        const timer = setTimeout(() => controller.abort(), timeoutMs);
-                        let res: Response;
-                        try {
-                            res = await fetch(imageUrl.trim(), {
-                                method: "GET",
-                                redirect: "follow",
-                                signal: controller.signal,
-                                headers: { Accept: "image/*" },
-                            });
-                        } finally {
-                            clearTimeout(timer);
-                        }
-                        if (!res.ok) {
-                            console.warn(`download image http ${res.status}: ${imageUrl.slice(0, 80)}`);
-                            continue;
-                        }
-                        const ct = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
-                        if (!ct.startsWith("image/")) {
-                            console.warn(`download image skip non-image ${ct}: ${imageUrl.slice(0, 80)}`);
-                            continue;
-                        }
-                        const len = res.headers.get("content-length");
-                        if (len && parseInt(len, 10) > maxBytes) {
-                            continue;
-                        }
-                        const ab = await res.arrayBuffer();
-                        if (ab.byteLength > maxBytes) {
-                            continue;
-                        }
-                        const buffer = Buffer.from(ab);
-                        const ext =
-                            ct.includes("png") || imageUrl.toLowerCase().includes(".png")
-                                ? ".png"
-                                : ct.includes("gif")
-                                  ? ".gif"
-                                  : ct.includes("webp")
-                                    ? ".webp"
-                                    : ".jpg";
-                        const idPart = entity.id != null ? String(entity.id) : "x";
-                        const nameKey = hashCode(entity.name).replace(/[^a-z0-9_.-]/gi, "_").replace(/_+/g, "_").replace(/^_|_$/g, "") || "n";
-                        const fileName = `${nameKey.slice(0, 80)}_${idPart}_${i}${ext}`;
-                        await storageService.saveDownloadedWebImage(bookId, fileName, buffer);
-                    } catch (e: any) {
-                        console.warn(`download image skip: ${imageUrl?.slice?.(0, 80) ?? ""} — ${e?.message ?? e}`);
-                    }
-                }
-            }
-            result.downloadImages = true;
-            await storageService.setResult(bookId, result, "json");
-            console.log(`End download images`);
+        //if (!result.downloadImages) {
+        console.log(`Start download images`);
+        for (const entity of result.entities) {
+            await this.downloadImage(bookId, storageService, entity);
+            console.log(`${entity.name} image downloaded`);
         }
+        result.downloadImages = true;
+        await storageService.setResult(bookId, result, "json");
+        console.log(`End download images`);
+        //}
         return Promise.resolve(result);
     }
     async responseAI({
@@ -606,11 +756,14 @@ export class Analyzer {
         }
         if (!text) {
             try {
+                const maxOutRaw = process.env.OPENAI_MAX_OUTPUT_TOKENS ?? "8192";
+                const maxOutputTokens = Math.max(1, parseInt(maxOutRaw, 10) || 8192);
                 const req: any = {
                     model: process.env.OPENAI_API_MODEL,
                     instructions: instructions,
                     input: [{ role: "user" as const, content: [{ type: "input_text" as const, text: prompt }] }],
                     temperature: 0.0,
+                    max_output_tokens: maxOutputTokens,
                 };
                 if (jsonSchema) {
                     req.text = {
@@ -624,6 +777,10 @@ export class Analyzer {
                 }
                 if (tools) {
                     req.tools = tools;
+                    const mtc = parseInt(process.env.WEB_SEARCH_MAX_TOOL_CALLS ?? "5", 10);
+                    const cap = Number.isFinite(mtc) && mtc > 0 ? Math.min(mtc, 12) : 5;
+                    req.max_tool_calls = cap;
+                    req.parallel_tool_calls = false;
                 }
                 const response = await this.openai.responses.create(req);
                 if (response.error) {
@@ -720,5 +877,64 @@ export class Analyzer {
 
         // Replace entity
         result.entities[altIndex] = result.entities[mainIndex];
+    }
+    async downloadImage(bookId: string, storageService: StorageService, entity: any): Promise<void> {
+        const maxBytes = 5 * 1024 * 1024;
+        const timeoutMs = 30_000;
+        const delayMs = Math.max(0, parseInt(process.env.IMAGE_DOWNLOAD_DELAY_MS ?? "1200", 10) || 1200);
+        const ws = entity.webSearch;
+        if (ws && ws.imageUrls) {
+            ws.download = [];
+            const urls = [...ws.imageUrls];
+            let first = true;
+            for (const imageUrl of urls) {
+                if (!first) {
+                    await sleep(delayMs);
+                }
+                first = false;
+                try {
+                    const got = await fetchRemoteImageResponse(imageUrl, timeoutMs);
+                    if (!got) {
+                        //console.warn(`download image failed (after retries): ${imageUrl.slice(0, 100)}`);
+                        continue;
+                    }
+                    const { res, urlUsed } = got;
+                    const ct = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+                    if (ct === "text/html") {
+                        const html = await res.text();
+                        const dom = new JSDOM(html);
+                        let fn = path.basename(new URL(urlUsed).pathname);
+                        if (fn.startsWith("File:")) fn = fn.slice(5);
+                        const sources = [...dom.window.document.querySelectorAll("body img")]
+                            .map((img: any) => img.src)
+                            .filter((s: string) => s.startsWith("http"));
+                        const source = sources.find((s: string) => s.includes(fn)) ?? sources[0];
+                        if (source) {
+                            urls.push(source);
+                        }
+                        continue;
+                    }
+                    if (!ct.startsWith("image/")) {
+                        //console.warn(`download image skip non-image ${ct}: ${imageUrl.slice(0, 80)}`);
+                        continue;
+                    }
+                    const len = res.headers.get("content-length");
+                    if (len && parseInt(len, 10) > maxBytes) {
+                        continue;
+                    }
+                    const ab = await res.arrayBuffer();
+                    if (ab.byteLength > maxBytes) {
+                        continue;
+                    }
+                    const buffer = Buffer.from(ab);
+                    let extName = path.extname(new URL(urlUsed).pathname).split("?")[0];
+                    const fileName = `${ws.download.length + 1}${extName}`;
+                    ws.download.push(await storageService.saveDownloadedWebImage(bookId, hashCode(entity.name), fileName, buffer));
+                } catch (e: any) {
+                    console.warn(`download image skip: ${imageUrl?.slice?.(0, 80) ?? ""} — ${e?.message ?? e}`);
+                }
+            }
+        }
+        return Promise.resolve();
     }
 }
