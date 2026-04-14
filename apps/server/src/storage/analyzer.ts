@@ -1,4 +1,4 @@
-import { OpenAI } from "openai";
+import { OpenAI, toFile } from "openai";
 import { JSDOM } from "jsdom";
 import { StorageService } from "./service";
 import * as path from "node:path";
@@ -33,6 +33,20 @@ function isWikimediaUploadUrl(url: string): boolean {
         return h === "upload.wikimedia.org" || h.endsWith(".wikimedia.org");
     } catch {
         return false;
+    }
+}
+
+function normalizeRemoteImageUrl(rawUrl: string): string {
+    try {
+        const u = new URL(rawUrl);
+        // Для upload.wikimedia.org query-параметры часто лишние/временные.
+        if (u.hostname === "upload.wikimedia.org" || u.hostname.endsWith(".wikimedia.org")) {
+            u.search = "";
+            u.hash = "";
+        }
+        return u.toString();
+    } catch {
+        return rawUrl;
     }
 }
 
@@ -179,7 +193,7 @@ const PERSONAE_RESULT_JSON_SCHEMA = {
 const WEB_SEARCH_RESULT_JSON_SCHEMA = {
     type: "object",
     additionalProperties: false,
-    required: ["summary", "sources", "imageUrls"],
+    required: ["summary", "sources"],
     properties: {
         summary: { type: "string" },
         sources: {
@@ -194,9 +208,21 @@ const WEB_SEARCH_RESULT_JSON_SCHEMA = {
                 },
             },
         },
+    },
+} as const;
+
+const WEB_SEARCH_IMAGES_RESULT_JSON_SCHEMA = {
+    type: "object",
+    additionalProperties: false,
+    required: ["imageUrls"],
+    properties: {
         imageUrls: { type: "array", items: { type: "string" } },
     },
 } as const;
+
+const WIKIPEDIA_DOMAINS = ["wikipedia.org", "ru.wikipedia.org", "en.wikipedia.org"] as const;
+const WIKIMEDIA_IMAGE_DOMAINS = ["upload.wikimedia.org", "commons.wikimedia.org", "wikimedia.org"] as const;
+
 type Chunk = {
     text: string;
     minChunk: number;
@@ -326,6 +352,17 @@ function mergeHistoricalLikelihood(target: any, incoming: any): void {
     target.historicalLikelihood = Math.max(target.historicalLikelihood, incoming.historicalLikelihood);
 }
 
+export async function getModels(): Promise<any> {
+    const response = await fetch("https://ai.api.cloud.yandex.net/v1/models", {
+        headers: {
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+    });
+    let data = await response.json();
+    console.log(data);
+    return data;
+}
+
 export class Analyzer {
     private openai: OpenAI;
     constructor() {
@@ -435,24 +472,36 @@ export class Analyzer {
     private getWebSearchInstructions(): string {
         return `
         Ищи в интернете только проверяемые факты.
-        Не придумывай ссылки и URL картинок — только то, что реально встретилось в результатах поиска.
+        Не придумывай ничего, только то, что реально встретилось в результатах поиска.
         Если не уверен — пиши осторожно и указывай источники.
-
-        Поиск картинок (imageUrls) — отдельная задача:
-        - Сделай минимум один явный поиск, ориентированный на изображения: запросы вроде
-          «имя + portrait», «имя + photo», «имя фото портрет», для исторических лиц — также
-          запрос по англоязычному имени и словам wikipedia, wikimedia, commons.
-        - Предпочитай стабильные прямые ссылки на файлы изображений (https, часто .jpg / .jpeg / .png / .webp)
-          и материалы Wikimedia Commons / иллюстрации из Википедии; избегай главных страниц поисковиков и голых HTML-страниц без картинки.
-        - В imageUrls попадают только URL, по которым в браузере открывается именно файл или явная картинка; не дублируй один и тот же снимок.
-        - До 3 разных изображений из разных источников, если находятся.
+        Ограничение источников для фактов: только Wikipedia (wikipedia.org, включая ru/en).
 
         Верни ответ строго как JSON-объект с полями:
         - summary — краткое описание персонажа по материалам в интернете
         - sources — массив источников, не больше 3 пунктов (title + url)
-        - imageUrls — массив URL изображений, не больше 3
         - Дополнительное описание персонажа используй только как подсказку для формулировки поисковых запросов, не копируй его в summary дословно.
         - Текст в summary и в полях sources (title) — на русском языке.
+        `;
+    }
+    private getWebSearchImagesInstructions(): string {
+        return `
+        Ищи в интернете только проверяемые факты.
+        Не придумывай ничего, только то, что реально встретилось в результатах поиска.
+        Если не уверен — пиши осторожно и указывай источники.
+        Ограничение источников для картинок: только Wikimedia (upload.wikimedia.org / commons.wikimedia.org / wikimedia.org).
+        Найди фото реального персонажа, не фотографии других людей. 
+        Найти фото которое максимально соответствует возрасту по описанию персонажа. 
+        Фото памятников, надписей, статуэток не используй.
+        Верни ответ строго как JSON-объект с полями:
+        - imageUrls — массив URL изображений, не больше 1 изображения
+        `;
+    }
+    private getWebSearchImagesPrompt(entity: any): string {
+        return `
+        Произведи поиск в интернете в соответствии с инструкциями.
+
+        Персонаж: ${entity.name}
+        Дополнительное описание (для контекста запросов): ${entity.description}
         `;
     }
     /** Ограничение длины описания в запросе web search: иначе вход переполняет контекст и API даёт max_tokens < 1. */
@@ -467,23 +516,24 @@ export class Analyzer {
     }
 
     private getWebSearchPrompt(entity: any): string {
-        const desc = this.truncateTextForWebSearchContext(entity.description ?? "");
         return `
         Произведи поиск в интернете в соответствии с инструкциями.
 
         Персонаж: ${entity.name}
-        Дополнительное описание (для контекста запросов): ${desc}
-
-        Шаги: (1) факты и статьи для summary и sources; (2) отдельно — поиск иллюстраций
-        (портрет, фото, гравюра, Wikimedia Commons / Википедия, при необходимости запрос на английском).
+        Дополнительное описание (для контекста запросов): ${entity.description ?? ""}
         `;
     }
 
     /** Параметры встроенного web_search: меньше объём выдачи — иначе API режет ответ (лимит ~640k символов на генерацию). */
-    private getWebSearchToolSpec(): { type: "web_search"; search_context_size: "low" | "medium" | "high" } {
+    private getWebSearchToolSpec(mode: "facts" | "images"): {
+        type: "web_search";
+        search_context_size: "low" | "medium" | "high";
+        filters: { allowed_domains: readonly string[] };
+    } {
         const raw = (process.env.WEB_SEARCH_CONTEXT_SIZE ?? "low").toLowerCase();
         const search_context_size = raw === "medium" || raw === "high" ? raw : "low";
-        return { type: "web_search", search_context_size };
+        const allowed_domains = mode === "images" ? WIKIMEDIA_IMAGE_DOMAINS : WIKIPEDIA_DOMAINS;
+        return { type: "web_search", search_context_size, filters: { allowed_domains } };
     }
     private *getChunks(source: string): Generator<Chunk> {
         let chunkSize = parseInt(process.env.CHUNK_SIZE ?? "20000");
@@ -694,7 +744,7 @@ export class Analyzer {
         //Web search
         if (!result.webSearch) {
             console.log(`Start web search`);
-            for (const entity of result.entities.slice(0, 10)) {
+            for (const entity of result.entities.slice(0, 5)) {
                 if (entity.historicalLikelihood > 0) {
                     const response = await this.responseAI({
                         name: "Web search",
@@ -705,9 +755,11 @@ export class Analyzer {
                         debugResultName: `web_search_${hashCode(entity.name)}.json`,
                         jsonSchema: WEB_SEARCH_RESULT_JSON_SCHEMA,
                         jsonSchemaFormatName: "personae_web_search",
-                        tools: [this.getWebSearchToolSpec()],
+                        tools: [this.getWebSearchToolSpec("facts")],
                     });
-                    entity.webSearch = response;
+                    entity.webSearch = entity.webSearch ?? {};
+                    entity.webSearch.summary = response.summary;
+                    entity.webSearch.sources = response.sources;
                 }
                 console.log(`${entity.name} web search completed`);
             }
@@ -715,16 +767,52 @@ export class Analyzer {
             await storageService.setResult(bookId, result, "json");
             console.log(`End web search`);
         }
-        // Download images
-        //if (!result.downloadImages) {
-        console.log(`Start download images`);
-        for (const entity of result.entities) {
-            await this.downloadImage(bookId, storageService, entity);
-            console.log(`${entity.name} image downloaded`);
+        //Web search images
+        if (!result.webSearchImages) {
+            console.log(`Start web search images`);
+            for (const entity of result.entities.slice(0, 5)) {
+                if (entity.historicalLikelihood > 0) {
+                    const response = await this.responseAI({
+                        name: "Web search images",
+                        storageService,
+                        bookId,
+                        instructions: this.getWebSearchImagesInstructions(),
+                        prompt: this.getWebSearchImagesPrompt(entity),
+                        debugResultName: `web_search_images_${hashCode(entity.name)}.json`,
+                        jsonSchema: WEB_SEARCH_IMAGES_RESULT_JSON_SCHEMA,
+                        jsonSchemaFormatName: "personae_web_search_images",
+                        tools: [this.getWebSearchToolSpec("images")],
+                    });
+                    entity.webSearch = entity.webSearch ?? {};
+                    entity.webSearch.imageUrls = response.imageUrls;
+                }
+                console.log(`${entity.name} web search images completed`);
+            }
+            result.webSearchImages = true;
+            await storageService.setResult(bookId, result, "json");
+            console.log(`End web search images completed`);
         }
-        result.downloadImages = true;
+        // Download images
+        if (!result.downloadImages) {
+            console.log(`Start download images`);
+            for (const entity of result.entities) {
+                await this.downloadImage(bookId, storageService, entity);
+                console.log(`${entity.name} image downloaded`);
+            }
+            result.downloadImages = true;
+            await storageService.setResult(bookId, result, "json");
+            console.log(`End download images`);
+        }
+        // Generate images
+        //if (!result.generateImages) {
+        console.log(`Start generate images`);
+        for (const entity of result.entities) {
+            await this.generateImage(bookId, storageService, entity);
+            console.log(`${entity.name} image generated`);
+        }
+        result.generateImages = true;
         await storageService.setResult(bookId, result, "json");
-        console.log(`End download images`);
+        console.log(`End generate images`);
         //}
         return Promise.resolve(result);
     }
@@ -885,6 +973,7 @@ export class Analyzer {
         const ws = entity.webSearch;
         if (ws && ws.imageUrls) {
             ws.download = [];
+            ws.imageDownloadUrls = [];
             const urls = [...ws.imageUrls];
             let first = true;
             for (const imageUrl of urls) {
@@ -930,11 +1019,80 @@ export class Analyzer {
                     let extName = path.extname(new URL(urlUsed).pathname).split("?")[0];
                     const fileName = `${ws.download.length + 1}${extName}`;
                     ws.download.push(await storageService.saveDownloadedWebImage(bookId, hashCode(entity.name), fileName, buffer));
+                    ws.imageDownloadUrls.push(imageUrl);
                 } catch (e: any) {
                     console.warn(`download image skip: ${imageUrl?.slice?.(0, 80) ?? ""} — ${e?.message ?? e}`);
                 }
             }
         }
         return Promise.resolve();
+    }
+    async generateImage(bookId: string, storageService: StorageService, entity: any): Promise<void> {
+        const ws = entity.webSearch;
+        if (ws && ws.download) {
+            ws.generated = [];
+            const stylePrompt =
+                process.env.STYLE_IMAGE_PROMPT?.trim() ??
+                "Стилизуй изображение как аккуратную книжную иллюстрацию, сохрани узнаваемые черты человека, естественные цвета, нейтральный фон.";
+            const imageName = hashCode(entity.name);
+            const urls = Array.isArray(ws.imageDownloadUrls) ? ws.imageDownloadUrls : [];
+            const local = Array.isArray(ws.download) ? ws.download : [];
+            const sources = urls.length > 0 ? urls : local;
+            for (const source of sources.slice(0, 1)) {
+                try {
+                    let fileName = "source.jpg";
+                    let inputImage: Buffer;
+
+                    if (typeof source === "string" && /^https?:\/\//i.test(source)) {
+                        const remoteUrl = normalizeRemoteImageUrl(source);
+                        const r = await fetch(remoteUrl, {
+                            headers: {
+                                Accept: "image/avif,image/webp,image/*,*/*;q=0.8",
+                                "User-Agent": imageFetchUserAgent(),
+                            },
+                        });
+                        if (!r.ok) {
+                            continue;
+                        }
+                        const ct = (r.headers.get("content-type") ?? "").toLowerCase();
+                        // Images edit принимает png/webp/jpg; svg пропускаем.
+                        if (ct.includes("svg")) {
+                            continue;
+                        }
+                        inputImage = Buffer.from(await r.arrayBuffer());
+                        fileName = path.basename(new URL(remoteUrl).pathname) || "source.jpg";
+                    } else if (typeof source === "string") {
+                        fileName = path.basename(source);
+                        const base64Image = await storageService.getDownloadedWebImageBase64(bookId, imageName, fileName);
+                        inputImage = Buffer.from(base64Image, "base64");
+                    } else {
+                        continue;
+                    }
+
+                    const edited = await this.openai.images.edit({
+                        model: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1",
+                        image: await toFile(inputImage, fileName),
+                        prompt: stylePrompt,
+                        size: "1024x1024",
+                        output_format: "png",
+                        quality: "medium",
+                        n: 1,
+                    });
+                    const outB64 = edited.data?.[0]?.b64_json;
+                    if (!outB64) {
+                        continue;
+                    }
+                    const outPath = await storageService.saveDownloadedWebImage(
+                        bookId,
+                        imageName,
+                        `styled_${ws.generated.length + 1}.png`,
+                        Buffer.from(outB64, "base64"),
+                    );
+                    ws.generated.push(outPath);
+                } catch (e: any) {
+                    console.warn(`generate image skip: ${String(source)?.slice?.(0, 80) ?? ""} — ${e?.message ?? e}`);
+                }
+            }
+        }
     }
 }

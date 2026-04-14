@@ -3,7 +3,7 @@ import { BOOK_FILES, Shelf, Book, IStorage } from "@personae/shared";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { parseImportedSource } from "./source";
-import { Analyzer } from "./analyzer";
+import { Analyzer, getModels } from "./analyzer";
 import { decorateResult } from "./decorator";
 
 const EMPTY_SOURCE_HTML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -255,9 +255,16 @@ export class StorageService implements IStorage {
         }
     }
 
+    async getDownloadedWebImageBase64(bookId: string, name: string, fileName: string): Promise<string> {
+        await this.open();
+        const dir = name.startsWith(bookId) ? path.join(this.root, name) : path.join(this.root, bookId, "images", name);
+        const data = await fs.readFile(path.join(dir, fileName));
+        return Promise.resolve(data.toString("base64"));
+    }
+
     async saveDownloadedWebImage(bookId: string, name: string, fileName: string, data: Buffer): Promise<string> {
         await this.open();
-        const dir = path.join(this.root, bookId, "images", name);
+        const dir = name.startsWith(bookId) ? path.join(this.root, name) : path.join(this.root, bookId, "images", name);
         await fs.mkdir(dir, { recursive: true });
         await fs.writeFile(path.join(dir, fileName), data);
         return Promise.resolve(path.join(bookId, "images", name, fileName).replace(/\\/g, "/"));
